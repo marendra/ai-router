@@ -221,6 +221,32 @@ LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
 - Verified live in D1: non-streaming AND streaming rows with prompt/completion/total
   tokens, latency_ms, finish_reason (e.g. deepinfra stream row: 68/25/93, 1057ms, stop).
 
+## External Review Fixes (2026-09-20, all 7 findings verified then fixed)
+
+1. [P1] **half-open probe wedge**: probe flag cleared on EVERY release path —
+   reportFailure clears it before the non-penalizing early-return; housekeeping clears
+   stale flags for providers with no live leases; reportSuccess on an expired lease
+   still marks healthy. Regression tests R1a/R1b.
+2. [P1] **timeout killed healthy streams**: fetch now uses one AbortController per
+   attempt; the timeout timer is CLEARED once headers arrive for streaming (TTFB-only
+   semantics — idle watchdog governs the body). Non-streaming keeps a total timeout
+   through the body read. (R2 test guards the healthy path; the header/body split is
+   verified by inspection — the mock cannot deliver a slow body after fast headers.)
+3. [P1] **client abort left upstream generating**: tee() removed entirely — the pump
+   forwards bytes AND harvests usage from the single stream, so reader.cancel() stops
+   the upstream fetch. R3 test asserts the source's cancel() fires.
+4. [P1] **stalls reported as success**: watchdog sets an explicit timedOut flag;
+   stalled streams terminate with writer.abort() (client sees truncation) and report
+   failure class "timeout". R4 test.
+5. [P2] **client abort ignored pre-headers**: req.signal wired into the attempt's
+   AbortController + explicit req.signal.aborted check before every attempt.
+6. [P2] **router 500 on bad 2xx bodies**: body-read failure now reports failure and
+   fails over (nothing sent to client yet); JSON-parse failure records empty usage but
+   still passes the raw body through with 200. R6 test.
+7. [P2] **usage rows lied about interrupted streams**: ledger row now written at stream
+   SETTLEMENT (onSettled) with final outcome — failure class + full-stream latency.
+   drainSseAndRecord (swallowing errors on a tee branch) deleted.
+
 ## Known Limitations
 
 - Single logical model (`gpt-oss-120b`); multi-model works structurally (`getByName(model)`)

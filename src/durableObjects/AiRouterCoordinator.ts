@@ -344,6 +344,13 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
   /** Lazy housekeeping at the top of routing RPCs: expire leases, drop drained deletes. */
   private housekeeping(now: number): void {
     purgeExpiredLeases(this.sql, now);
+    // A half-open probe flag without a live lease is stale (the probe lease expired or
+    // its report never arrived) — clear it or the provider stays ineligible forever.
+    this.sql.exec(
+      `UPDATE provider_state SET half_open_probe_active = 0
+       WHERE half_open_probe_active = 1
+         AND provider_id NOT IN (SELECT DISTINCT provider_id FROM leases)`,
+    );
     this.sql.exec(
       `DELETE FROM providers WHERE pending_deletion = 1 AND id NOT IN
        (SELECT DISTINCT provider_id FROM leases)`,
@@ -452,10 +459,12 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
   async reportSuccess(request: ReportSuccessRequest): Promise<{ released: boolean }> {
     const now = Date.now();
     this.housekeeping(now);
-    // Delete-first makes this idempotent: a second report is a harmless no-op.
-    if (!deleteLease(this.sql, request.leaseId)) return { released: false };
+    // Delete-first makes this idempotent for lease accounting. The health update still
+    // runs for an already-expired lease: a late success genuinely proves the provider
+    // works (e.g. a probe whose lease aged out mid-generation).
+    const released = deleteLease(this.sql, request.leaseId);
     const cfg = this.loadConfig(request.providerId);
-    if (!cfg) return { released: true };
+    if (!cfg) return { released };
     const state = this.loadState(cfg.id);
     state.consecutiveFailures = 0;
     state.status = "healthy";
@@ -463,21 +472,27 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
     state.halfOpenProbeActive = false;
     state.lastSuccessAt = now;
     this.writeState(state);
-    return { released: true };
+    return { released };
   }
 
   async reportFailure(request: ReportFailureRequest): Promise<{ released: boolean }> {
     const now = Date.now();
     this.housekeeping(now);
     if (!deleteLease(this.sql, request.leaseId)) return { released: false };
-    if (!isPenalizing(request.failureClass)) return { released: true };
 
     const cfg = this.loadConfig(request.providerId);
     if (!cfg) return { released: true };
     const state = this.loadState(cfg.id);
 
+    // The probe is resolved regardless of failure class — even a non-penalizing one
+    // (client_error / client_abort) must free the half-open slot.
     const wasProbe = state.halfOpenProbeActive;
     state.halfOpenProbeActive = false;
+    if (!isPenalizing(request.failureClass)) {
+      if (wasProbe) this.writeState(state);
+      return { released: true };
+    }
+
     state.consecutiveFailures += 1;
     state.lastFailureAt = now;
     state.lastFailureStatus = request.status;
@@ -490,7 +505,6 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
       wasProbe || kind !== "normal" || state.consecutiveFailures >= cfg.failureThreshold;
     if (trips) {
       state.status = "cooldown";
-      const kind = cooldownClass(request.failureClass);
       const ms =
         kind === "auth"
           ? cfg.authFailureCooldownMs

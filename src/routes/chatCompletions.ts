@@ -22,7 +22,6 @@ import {
 } from "../utils/errors";
 import { buildStreamResponseHeaders, pipeUpstreamStream } from "./streaming";
 import {
-  drainSseAndRecord,
   EMPTY_USAGE,
   extractUsageFromCompletion,
   recordProviderCall,
@@ -117,6 +116,11 @@ export async function handleChatCompletions(
   let lastFailureStatus: number | null = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // A client that already disconnected must not trigger (and pay for) inference.
+    if (req.signal.aborted) {
+      return errorResponse(499, "Client disconnected.", "client_error", "client_abort");
+    }
+
     const acquisition = await stub.acquireProvider({
       model: chat.model,
       requestId,
@@ -175,6 +179,19 @@ export async function handleChatCompletions(
     }
     const startedAt = Date.now();
 
+    // One controller per attempt: the upstream timeout AND client cancellation both
+    // abort the fetch. For STREAMING the timeout means time-to-first-response only —
+    // the timer is cleared once headers arrive and the idle watchdog governs the body,
+    // so a healthy long stream is never cut. For non-streaming it is the total timeout
+    // and stays armed through the body read.
+    const abort = new AbortController();
+    const onClientAbort = (): void =>
+      abort.abort(new DOMException("client aborted", "AbortError"));
+    req.signal.addEventListener("abort", onClientAbort, { once: true });
+    let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+      abort.abort(new DOMException("upstream timeout", "TimeoutError"));
+    }, cfg.timeoutMs);
+
     let upstream: Response;
     try {
       upstream = await callProvider({
@@ -182,9 +199,11 @@ export async function handleChatCompletions(
         resolvedBaseUrl: baseUrl,
         apiKey,
         body: upstreamBody,
-        signal: AbortSignal.timeout(cfg.timeoutMs),
+        signal: abort.signal,
       });
     } catch (err) {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      req.signal.removeEventListener("abort", onClientAbort);
       const failureClass = classifyFetchError(err, req.signal.aborted);
       const latencyMs = Date.now() - startedAt;
       await stub.reportFailure({ leaseId, providerId, status: null, failureClass, latencyMs });
@@ -202,6 +221,12 @@ export async function handleChatCompletions(
       lastFailureClass = failureClass;
       if (!shouldFailover(failureClass)) break;
       continue;
+    }
+    // Headers arrived. For streaming this closes the failover/timeout window: the
+    // response is now governed by the stream idle watchdog, not by timeoutMs.
+    if (streaming && timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+      timeoutId = undefined;
     }
 
     if (!upstream.ok) {
@@ -228,16 +253,42 @@ export async function handleChatCompletions(
 
     // Upstream 2xx: the failover window closes here.
     if (!streaming) {
-      const latencyMs = Date.now() - startedAt;
-      // Single buffered read to harvest token usage for the ledger; the body is then
-      // re-emitted to the client unchanged.
-      let bodyText: string | null = null;
-      let usage: TokenUsage = EMPTY_USAGE;
+      // Total-timeout window (timer still armed) covers the body read. A body-read
+      // failure is a provider failure: report it and fail over — nothing has been
+      // sent to the client yet, so retrying is safe.
+      let bodyText: string;
       try {
         bodyText = await upstream.text();
+      } catch (err) {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        req.signal.removeEventListener("abort", onClientAbort);
+        const failureClass = classifyFetchError(err, req.signal.aborted);
+        const latencyMs = Date.now() - startedAt;
+        await stub.reportFailure({ leaseId, providerId, status: null, failureClass, latencyMs });
+        recordProviderCall(env, ctx, {
+          requestId, provider: providerId, logicalModel: chat.model, upstreamModel: cfg.modelId,
+          stream: false, status: null, failureClass, latencyMs, ...EMPTY_USAGE,
+        });
+        log.info("upstream_attempt_failed", {
+          requestId, providerId, attempt, failureClass, latencyMs, result: "body_read_error",
+        });
+        if (failureClass === "client_abort") {
+          return errorResponse(499, "Client disconnected.", "client_error", "client_abort");
+        }
+        attempted.push(providerId);
+        lastFailureClass = failureClass;
+        if (!shouldFailover(failureClass)) break;
+        continue;
+      }
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      req.signal.removeEventListener("abort", onClientAbort);
+      const latencyMs = Date.now() - startedAt;
+      // Usage extraction must never break passthrough of an otherwise-valid body.
+      let usage: TokenUsage = EMPTY_USAGE;
+      try {
         usage = extractUsageFromCompletion(JSON.parse(bodyText));
       } catch {
-        bodyText = null;
+        usage = EMPTY_USAGE;
       }
       await stub.reportSuccess({ leaseId, providerId, latencyMs });
       recordProviderCall(env, ctx, {
@@ -251,15 +302,11 @@ export async function handleChatCompletions(
         attemptCount: attempt, attemptedProviders: attempted.join(","), latencyMs, success: true,
       });
       const debug = debugHeaderMap(env, { providerId, attempts: attempt, requestId });
-      const passthrough =
-        bodyText !== null
-          ? new Response(bodyText, {
-              status: upstream.status,
-              statusText: upstream.statusText,
-              headers: withExtraHeaders(upstream.headers, debug),
-            })
-          : responseWithHeaders(upstream, debug);
-      return passthrough;
+      return new Response(bodyText, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers: withExtraHeaders(upstream.headers, debug),
+      });
     }
 
     const streamHeaders = buildStreamResponseHeaders(
@@ -267,13 +314,13 @@ export async function handleChatCompletions(
       requestId,
       debugHeaderMap(env, { providerId, attempts: attempt, requestId }),
     );
-    // Tee the byte stream: branch A goes to the client untouched; branch B is drained
-    // in the background to harvest the usage chunk for the ledger.
-    const [clientBody, ledgerBody] = upstream.body!.tee();
+    // Single stream, no tee(): the pump forwards bytes to the client AND harvests the
+    // usage chunk. Cancelling the client side therefore cancels the upstream fetch —
+    // no orphaned generation after the lease is released.
     const readable = pipeUpstreamStream({
       req,
       upstream,
-      body: clientBody,
+      body: upstream.body!,
       stub,
       providerId,
       leaseId,
@@ -282,11 +329,22 @@ export async function handleChatCompletions(
       startedAt,
       // NOTE: must wrap — destructured ctx.waitUntil loses its `this` in production.
       waitUntil: (promise: Promise<unknown>) => ctx.waitUntil(promise),
+      collectUsage: env.USAGE_DB !== undefined,
+      onSettled: (outcome) => {
+        // Ledger row reflects the FINAL outcome: failures carry their class and the
+        // duration includes the whole stream, not just time-to-headers.
+        recordProviderCall(env, ctx, {
+          requestId, provider: providerId, logicalModel: chat.model, upstreamModel: cfg.modelId,
+          stream: true, status: upstream.status,
+          failureClass: outcome.success ? null : outcome.failureClass,
+          latencyMs: outcome.latencyMs,
+          promptTokens: outcome.promptTokens, completionTokens: outcome.completionTokens,
+          totalTokens: outcome.totalTokens, finishReason: outcome.finishReason,
+        });
+      },
     });
-    drainSseAndRecord(env, ctx, ledgerBody, {
-      requestId, provider: providerId, logicalModel: chat.model, upstreamModel: cfg.modelId,
-      stream: true, status: upstream.status, failureClass: null, latencyMs: Date.now() - startedAt,
-    });
+    // The pump installs its own abort listener on req.signal from here.
+    req.signal.removeEventListener("abort", onClientAbort);
     log.info("stream_started", { requestId, providerId, attempt });
     return new Response(readable, { status: upstream.status, headers: streamHeaders });
   }
