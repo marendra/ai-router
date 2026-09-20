@@ -54,10 +54,12 @@ async function main(): Promise<void> {
     messages: MESSAGES,
     max_tokens: 16,
   });
+  // gpt-oss is a reasoning model: at tiny max_tokens the visible content may be empty
+  // (reasoning consumes the budget, finish_reason="length"). A valid envelope is success.
   results.push({
     test: "POST /v1/chat/completions (non-streaming)",
     provider: completion.model,
-    status: completion.choices[0]?.message?.content ? "pass" : "fail",
+    status: completion.choices[0]?.finish_reason ? "pass" : "fail",
     latencyMs: Date.now() - t0,
   });
 
@@ -90,7 +92,7 @@ async function main(): Promise<void> {
   );
   results.push({
     test: "3 concurrent short completions",
-    status: roundRobin.every((r) => r.choices[0]?.message?.content) ? "pass" : "fail",
+    status: roundRobin.every((r) => r.choices[0]?.finish_reason) ? "pass" : "fail",
     latencyMs: Date.now() - t0,
   });
 

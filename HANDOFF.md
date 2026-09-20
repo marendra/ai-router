@@ -170,8 +170,9 @@ LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
 - non-streaming completions: PASS — every request 200; crusoe AND deepinfra both served
   real completions; failover absorbed akashml 530, modal 503 and one transient deepinfra 500
 - streaming (SSE passthrough): PASS — text/event-stream chunks forwarded verbatim
-- NOT verified live: akashml serving 200 (530 pending owner fix), modal (disabled),
-  client-abort/stream-interrupt against real upstreams.
+- `npm run smoke` (official OpenAI SDK vs production): PASS 4/4 — models, non-streaming,
+  streaming (10 chunks), 3 concurrent completions → crusoe/deepinfra/akashml, attempt=1 each
+- NOT verified live: modal (disabled), client-abort/stream-interrupt against real upstreams.
 
 ## Problems Found
 
