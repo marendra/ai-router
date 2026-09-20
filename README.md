@@ -22,6 +22,7 @@ const res = await client.chat.completions.create({
 ## Layout
 
 - `docs/AI_ROUTER_ARCHITECTURE.md` — authoritative design document
+- `docs/TEAM_API_GUIDE.md` — **start here to integrate**: base URL, auth, SDK examples, usage queries, error handling
 - `HANDOFF.md` — living status/handoff (update after every phase)
 - `src/` — Worker, routes, Durable Object coordinator, router logic, providers, auth
 - `test/` — vitest-pool-workers suite; every upstream is mocked, no paid calls ever
