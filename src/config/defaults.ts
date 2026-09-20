@@ -14,7 +14,7 @@ export const DEFAULT_LEASE_TTL_MS = 600_000; // 10 min: must exceed longest gene
  * upserted and the re-asserted providers' breaker state resets to healthy. Admin-created
  * providers and admin config edits to OTHER fields after the bump are untouched.
  */
-export const DEFAULT_SEED_VERSION = 6; // v6: add crusoe — rotation is deepinfra + akashml + crusoe
+export const DEFAULT_SEED_VERSION = 7; // v7: akashml baseUrl → api.akashml.com (domain migration)
 
 type Seed = Omit<
   ProviderConfig,
@@ -40,7 +40,7 @@ export const DEFAULT_PROVIDER_SEED: Seed[] = [
   {
     id: "akashml",
     enabled: true,
-    baseUrl: "https://api.akash.network/v1",
+    baseUrl: "https://api.akashml.com/v1", // api.akash.network is dead (NXDOMAIN) — AkashML migrated domains
     baseUrlEnv: null,
     modelId: "openai/gpt-oss-120b",
     apiKeyEnv: "AKASHML_API_KEY",

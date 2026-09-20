@@ -22,11 +22,10 @@ upstream adapter; secrets only as Cloudflare env bindings referenced by name.
 ## Current Phase
 
 IMPLEMENTED, DEPLOYED & LIVE-VERIFIED at https://gruuvix-ai-router.marendra.workers.dev
-(env `production`, secrets from the account-level Secrets Store). Active rotation:
-**crusoe ⇄ deepinfra** (akashml still answers 530 pending owner verification; modal
-disabled — dropped 2026-09-20). Live traffic confirmed: auth, /ready, non-streaming +
-streaming completions, and failover (akashml 530, a transient deepinfra 500, modal 503 —
-all absorbed; crusoe + deepinfra both served real gpt-oss-120b completions).
+(env `production`, secrets from the account-level Secrets Store). ACTIVE 3-PROVIDER ROUND
+ROBIN VERIFIED LIVE (seed v7, 2026-09-20): three consecutive requests hit akashml, crusoe
+and deepinfra — each on attempt 1, no failover needed. Default `reasoning_effort=low`
+injected upstream (var DEFAULT_REASONING_EFFORT; client value wins). Modal disabled.
 
 ## Implementation Status
 

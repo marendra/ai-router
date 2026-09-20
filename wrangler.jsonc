@@ -10,14 +10,17 @@
     "LOG_LEVEL": "info",
     // Debug headers (x-gruuvix-provider / x-gruuvix-attempts / x-gruuvix-request-id).
     // Never enable on production unless explicitly needed: reveals internal providers.
-    "ROUTER_DEBUG_HEADERS": "true",
+    "ROUTER_DEBUG_HEADERS": "false",
     // Upper bound on upstream attempts per client request (bounded further by
     // number of enabled providers). "3" is a safe initial default.
     "MAX_PROVIDER_ATTEMPTS": "3",
     // Lease TTL: how long an acquire() lease counts toward provider concurrency
     // if the Worker never reports back (crash safety). Must comfortably exceed
     // the longest streaming generation.
-    "LEASE_TTL_MS": "600000"
+    "LEASE_TTL_MS": "600000",
+    // Injected upstream when the client does not send reasoning_effort itself.
+    // Gruuvix workload is sentence summarization → low. Client value always wins.
+    "DEFAULT_REASONING_EFFORT": "low"
   },
 
   "durable_objects": {
@@ -48,7 +51,8 @@
         "LOG_LEVEL": "info",
         "ROUTER_DEBUG_HEADERS": "false",
         "MAX_PROVIDER_ATTEMPTS": "3",
-        "LEASE_TTL_MS": "600000"
+        "LEASE_TTL_MS": "600000",
+        "DEFAULT_REASONING_EFFORT": "low"
       },
       "durable_objects": {
         "bindings": [

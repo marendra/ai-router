@@ -151,6 +151,11 @@ export async function handleChatCompletions(
 
     // Model rewrite: only the model field changes; everything else passes through.
     const upstreamBody: Record<string, unknown> = { ...chat, model: cfg.modelId };
+    // Default reasoning effort (Gruuvix workload = sentence summarization → "low").
+    // An explicit client-supplied reasoning_effort always wins.
+    if (upstreamBody.reasoning_effort === undefined) {
+      upstreamBody.reasoning_effort = getEnvVar(env, "DEFAULT_REASONING_EFFORT") ?? "low";
+    }
     const startedAt = Date.now();
 
     let upstream: Response;
