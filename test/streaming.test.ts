@@ -102,6 +102,7 @@ describe("T17: stream interrupted AFTER data flowed — never replayed", () => {
     const readable = pipeUpstreamStream({
       req,
       upstream,
+      body: upstream.body!,
       stub,
       providerId: "a",
       leaseId: acquisition.leaseId,
@@ -164,6 +165,7 @@ describe("T23: client abort", () => {
     const readable = pipeUpstreamStream({
       req,
       upstream,
+      body: upstream.body!,
       stub,
       providerId: "a",
       leaseId: acquisition.leaseId,

@@ -40,6 +40,7 @@ injected upstream (var DEFAULT_REASONING_EFFORT; client value wins). Modal disab
 | 7 | Admin/provider management: status + CRUD under `GRUVIX_AI_ROUTER_ADMIN_KEY` | DONE |
 | 8 | Tests: 24 required scenarios + unit tests, all on fake upstreams (vitest-pool-workers) | DONE |
 | 9 | Smoke script (`npm run smoke`, OpenAI SDK) + deployment docs (below + README) | DONE |
+| 10 | Usage ledger: D1 row per provider attempt (tokens in/out, latency, status), async via ctx.waitUntil | DONE — live-verified |
 
 ## Files Created
 
@@ -79,6 +80,9 @@ src/routes/ready.ts                 GET /ready (DO-backed readiness)
 src/routes/internalProviders.ts     admin: GET/POST/PATCH/DELETE /internal/providers
 scripts/smoke-router.ts             manual live smoke via official OpenAI SDK (never in CI)
 scripts/tsconfig.json               node-types config for the smoke script
+schema.sql                          D1 schema for the usage ledger (provider_calls)
+src/usage/usageLedger.ts            async D1 recorder + usage extraction (JSON + SSE tail scan)
+test/usage.test.ts                  usage extraction unit tests (ledger write is production-only)
 test/helpers.ts                     fetchMock fake-provider helpers, DO stub factory
 test/unit.test.ts                   classifier, url join, request-id, timing-safe compare
 test/auth.test.ts                   T18 router auth, T19 admin auth
@@ -203,6 +207,17 @@ LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
   Live DO is at seed version 4.
 - Live upstream findings: akashml answers HTTP 530 (edge-level; endpoint/key to verify),
   modal answers HTTP 503 (app not serving — start/verify the Modal app); deepinfra healthy.
+- **RESOLVED — akashml 530 root cause**: api.akash.network lost its DNS record (AkashML
+  migrated to akashml.com). Seed v7 → `https://api.akashml.com/v1`; key works there.
+- **Usage ledger**: chose D1 over R2 on cost (D1 ≈ $1/1M writes, queryable SQL vs R2
+  $4.50/1M PUTs, download-to-analyze). Non-streaming: body buffered once for usage
+  extraction, re-emitted verbatim. Streaming: `body.tee()` — client branch untouched,
+  background branch drains the final usage chunk (requires `stream_options.include_usage`,
+  injected automatically). Ledger lives ONLY in env.production; tests/local run without
+  the binding (recorder is a no-op — local D1 stub in the vitest pool crashes on these
+  writes with workerd "internal error").
+- Verified live in D1: non-streaming AND streaming rows with prompt/completion/total
+  tokens, latency_ms, finish_reason (e.g. deepinfra stream row: 68/25/93, 1057ms, stop).
 
 ## Known Limitations
 

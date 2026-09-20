@@ -17,6 +17,8 @@ export interface StreamCoordinator {
 export interface StreamArgs {
   req: Request;
   upstream: Response;
+  /** The byte stream to pipe (may be a tee() branch when usage harvesting is on). */
+  body: ReadableStream<Uint8Array>;
   stub: StreamCoordinator;
   providerId: string;
   leaseId: string;
@@ -63,7 +65,7 @@ export function pipeUpstreamStream(args: StreamArgs): ReadableStream {
 
   const pump = async (): Promise<void> => {
     const writer = writable.getWriter();
-    const reader = upstream.body!.getReader();
+    const reader = args.body.getReader();
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
     const armIdleWatchdog = (): void => {

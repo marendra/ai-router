@@ -3,6 +3,8 @@
 /** Keys a provider may reference via apiKeyEnv/baseUrlEnv. Resolved dynamically. */
 export interface Env {
   AI_ROUTER: DurableObjectNamespace;
+  /** Usage ledger (optional: absent => ledger disabled, e.g. some test setups). */
+  USAGE_DB?: D1Database;
 
   // --- secrets (set via `wrangler secret put`) ---
   GRUVIX_AI_ROUTER_KEY?: string;

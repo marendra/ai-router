@@ -32,6 +32,9 @@
     ]
   },
 
+  // Usage ledger (D1) is bound ONLY in env.production — see env block below.
+  // Tests/local dev run without it: the recorder is a no-op when the binding is absent.
+
   "migrations": [
     {
       "tag": "v1",
@@ -62,6 +65,13 @@
           }
         ]
       },
+      "d1_databases": [
+        {
+          "binding": "USAGE_DB",
+          "database_name": "gruuvix-usage",
+          "database_id": "3e7ac2aa-947a-48c7-a096-2994b6a6c530"
+        }
+      ],
       "secrets_store_secrets": [
         {
           "binding": "GRUVIX_AI_ROUTER_KEY",

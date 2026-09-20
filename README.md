@@ -60,6 +60,26 @@ npm run deploy
 Verify the seeded provider base URLs / model ids in `src/config/defaults.ts` (or via the
 admin API) before first deploy — they are initial defaults, not guessed production values.
 
+## Usage analytics (D1)
+
+Every provider attempt is logged asynchronously to D1 (`gruuvix-usage.provider_calls`):
+tokens in/out, duration, status, failure class — never prompt/completion text.
+
+```bash
+# tokens + latency per provider, per day
+npx wrangler d1 execute gruuvix-usage --remote --command "
+  SELECT provider, date(ts/1000,'unixepoch') AS day,
+         COUNT(*) AS calls,
+         SUM(prompt_tokens) AS tokens_in,
+         SUM(completion_tokens) AS tokens_out,
+         CAST(AVG(latency_ms) AS INT) AS avg_ms
+  FROM provider_calls GROUP BY provider, day ORDER BY day DESC, provider"
+```
+
+Chosen over R2 JSON dumps on cost: D1 ≈ $1 per 1M row writes (50M/month included on
+Workers Paid) and directly queryable; R2 PUTs cost $4.50 per 1M and would need
+download-and-parse for every question.
+
 ## Smoke (manual, spends a tiny amount)
 
 ```bash

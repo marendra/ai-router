@@ -21,6 +21,19 @@ import {
   noProviderAvailable,
 } from "../utils/errors";
 import { buildStreamResponseHeaders, pipeUpstreamStream } from "./streaming";
+import {
+  drainSseAndRecord,
+  EMPTY_USAGE,
+  extractUsageFromCompletion,
+  recordProviderCall,
+  type TokenUsage,
+} from "../usage/usageLedger";
+
+function withExtraHeaders(base: Headers, extra: Record<string, string>): Headers {
+  const headers = new Headers(base);
+  for (const [k, v] of Object.entries(extra)) headers.set(k, v);
+  return headers;
+}
 
 function debugHeadersEnabled(env: Env): boolean {
   const flag = getEnvVar(env, "ROUTER_DEBUG_HEADERS");
@@ -156,6 +169,10 @@ export async function handleChatCompletions(
     if (upstreamBody.reasoning_effort === undefined) {
       upstreamBody.reasoning_effort = getEnvVar(env, "DEFAULT_REASONING_EFFORT") ?? "low";
     }
+    // Ask streaming providers for a usage-bearing final chunk (harvested by the ledger).
+    if (streaming && upstreamBody.stream_options === undefined) {
+      upstreamBody.stream_options = { include_usage: true };
+    }
     const startedAt = Date.now();
 
     let upstream: Response;
@@ -171,6 +188,10 @@ export async function handleChatCompletions(
       const failureClass = classifyFetchError(err, req.signal.aborted);
       const latencyMs = Date.now() - startedAt;
       await stub.reportFailure({ leaseId, providerId, status: null, failureClass, latencyMs });
+      recordProviderCall(env, ctx, {
+        requestId, provider: providerId, logicalModel: chat.model, upstreamModel: cfg.modelId,
+        stream: streaming, status: null, failureClass, latencyMs, ...EMPTY_USAGE,
+      });
       log.info("upstream_attempt_failed", {
         requestId, providerId, attempt, failureClass, latencyMs, result: "fetch_error",
       });
@@ -186,6 +207,10 @@ export async function handleChatCompletions(
     if (!upstream.ok) {
       const failureClass = classifyUpstreamStatus(upstream.status);
       const latencyMs = Date.now() - startedAt;
+      recordProviderCall(env, ctx, {
+        requestId, provider: providerId, logicalModel: chat.model, upstreamModel: cfg.modelId,
+        stream: streaming, status: upstream.status, failureClass, latencyMs, ...EMPTY_USAGE,
+      });
       log.info("upstream_attempt_failed", {
         requestId, providerId, attempt, failureClass, upstreamStatus: upstream.status, latencyMs,
       });
@@ -204,14 +229,36 @@ export async function handleChatCompletions(
     // Upstream 2xx: the failover window closes here.
     if (!streaming) {
       const latencyMs = Date.now() - startedAt;
+      // Single buffered read to harvest token usage for the ledger; the body is then
+      // re-emitted to the client unchanged.
+      let bodyText: string | null = null;
+      let usage: TokenUsage = EMPTY_USAGE;
+      try {
+        bodyText = await upstream.text();
+        usage = extractUsageFromCompletion(JSON.parse(bodyText));
+      } catch {
+        bodyText = null;
+      }
       await stub.reportSuccess({ leaseId, providerId, latencyMs });
+      recordProviderCall(env, ctx, {
+        requestId, provider: providerId, logicalModel: chat.model, upstreamModel: cfg.modelId,
+        stream: false, status: upstream.status, failureClass: null, latencyMs,
+        promptTokens: usage.promptTokens, completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens, finishReason: usage.finishReason,
+      });
       log.info("request_completed", {
         requestId, finalProvider: providerId, stream: false,
         attemptCount: attempt, attemptedProviders: attempted.join(","), latencyMs, success: true,
       });
-      const passthrough = responseWithHeaders(upstream, {
-        ...debugHeaderMap(env, { providerId, attempts: attempt, requestId }),
-      });
+      const debug = debugHeaderMap(env, { providerId, attempts: attempt, requestId });
+      const passthrough =
+        bodyText !== null
+          ? new Response(bodyText, {
+              status: upstream.status,
+              statusText: upstream.statusText,
+              headers: withExtraHeaders(upstream.headers, debug),
+            })
+          : responseWithHeaders(upstream, debug);
       return passthrough;
     }
 
@@ -220,9 +267,13 @@ export async function handleChatCompletions(
       requestId,
       debugHeaderMap(env, { providerId, attempts: attempt, requestId }),
     );
+    // Tee the byte stream: branch A goes to the client untouched; branch B is drained
+    // in the background to harvest the usage chunk for the ledger.
+    const [clientBody, ledgerBody] = upstream.body!.tee();
     const readable = pipeUpstreamStream({
       req,
       upstream,
+      body: clientBody,
       stub,
       providerId,
       leaseId,
@@ -231,6 +282,10 @@ export async function handleChatCompletions(
       startedAt,
       // NOTE: must wrap — destructured ctx.waitUntil loses its `this` in production.
       waitUntil: (promise: Promise<unknown>) => ctx.waitUntil(promise),
+    });
+    drainSseAndRecord(env, ctx, ledgerBody, {
+      requestId, provider: providerId, logicalModel: chat.model, upstreamModel: cfg.modelId,
+      stream: true, status: upstream.status, failureClass: null, latencyMs: Date.now() - startedAt,
     });
     log.info("stream_started", { requestId, providerId, attempt });
     return new Response(readable, { status: upstream.status, headers: streamHeaders });
