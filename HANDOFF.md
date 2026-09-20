@@ -219,20 +219,23 @@ LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
 
 ## Remaining Work
 
-- **Modal (owner action)**: the configured endpoint answers HTTP 503 — start/verify the
-  Modal app is deployed and serving. The router side (URL from MODAL_BASE_URL, Bearer
-  MODAL_API_KEY) is wired and will pick it back up automatically after cooldown.
 - **AkashML (owner action)**: api.akash.network/v1/chat/completions answers HTTP 530 —
   verify the current base URL and that the key/account actually serves
   `openai/gpt-oss-120b`; fix via admin API (`PATCH /internal/providers/akashml`) or by
-  updating the AkashML entries in defaults.ts + a DEFAULT_SEED_VERSION bump.
-- Re-run `npm run smoke` once both upstreams serve, and confirm the 3-request round-robin
-  hits three different providers.
+  updating the AkashML entry in defaults.ts + a DEFAULT_SEED_VERSION bump.
+- **Modal dropped from rotation** (owner decision, 2026-09-20): seed v5 sets modal
+  enabled=false — the app returned instant 503s (down, not cold start). Re-enable via
+  admin API (`PATCH /internal/providers/modal {"enabled":true}`) once the app is
+  persistently deployed (`modal deploy`, not `modal serve`). Credentials stay bound.
+- Until AkashML serves, DeepInfra carries 100% of traffic (correct health-aware behavior).
+  When it serves, requests rotate akashml ⇄ deepinfra.
+- Re-run `npm run smoke` once AkashML serves, and confirm the 2-provider round-robin.
 - Optional future: weighted routing, per-provider RPM quotas, multiple logical models,
   latency EWMA in selection, rolling error-rate metrics endpoint.
 
 ## Recommended Next Step
 
-Fix the two upstreams above, then run `GRUVIX_AI_ROUTER_URL=https://gruuvix-ai-router.marendra.workers.dev GRUVIX_AI_ROUTER_KEY=<key> npm run smoke`
-and confirm the round-robin rotation (enable ROUTER_DEBUG_HEADERS=true in wrangler.jsonc
-env.production temporarily to see x-gruuvix-provider per response).
+Verify/fix the AkashML endpoint+key, then run
+`GRUVIX_AI_ROUTER_URL=https://gruuvix-ai-router.marendra.workers.dev GRUVIX_AI_ROUTER_KEY=<key> npm run smoke`
+and confirm rotation (enable ROUTER_DEBUG_HEADERS=true temporarily in env.production to
+see x-gruuvix-provider per response).

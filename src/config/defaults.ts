@@ -14,7 +14,7 @@ export const DEFAULT_LEASE_TTL_MS = 600_000; // 10 min: must exceed longest gene
  * upserted and the re-asserted providers' breaker state resets to healthy. Admin-created
  * providers and admin config edits to OTHER fields after the bump are untouched.
  */
-export const DEFAULT_SEED_VERSION = 4;
+export const DEFAULT_SEED_VERSION = 5; // v5: modal disabled — rotation is deepinfra + akashml
 
 type Seed = Omit<
   ProviderConfig,
@@ -54,7 +54,10 @@ export const DEFAULT_PROVIDER_SEED: Seed[] = [
   },
   {
     id: "modal",
-    enabled: true,
+    // DROPPED from rotation (owner decision, 2026-09-20): app is down (instant 503s —
+    // not a cold start). Config kept intact; flip enabled (or PATCH via admin API) to
+    // bring it back. Credentials stay bound in the Secrets Store.
+    enabled: false,
     // Existing Modal GPT-OSS-120B endpoint — consumed, never redeployed from here.
     // URL arrives via env var so no environment-specific value lands in source.
     baseUrl: null,
