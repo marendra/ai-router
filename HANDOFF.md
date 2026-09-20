@@ -22,10 +22,11 @@ upstream adapter; secrets only as Cloudflare env bindings referenced by name.
 ## Current Phase
 
 IMPLEMENTED, DEPLOYED & LIVE-VERIFIED at https://gruuvix-ai-router.marendra.workers.dev
-(env `production`, secrets from the account-level Secrets Store). Live traffic confirmed:
-auth, /ready, non-streaming + streaming completions, and failover (modal 503 / akashml 530
-→ deepinfra 200 on every request). Two upstreams need owner-side attention — see
-Remaining Work.
+(env `production`, secrets from the account-level Secrets Store). Active rotation:
+**crusoe ⇄ deepinfra** (akashml still answers 530 pending owner verification; modal
+disabled — dropped 2026-09-20). Live traffic confirmed: auth, /ready, non-streaming +
+streaming completions, and failover (akashml 530, a transient deepinfra 500, modal 503 —
+all absorbed; crusoe + deepinfra both served real gpt-oss-120b completions).
 
 ## Implementation Status
 
@@ -166,11 +167,11 @@ NOT tested (no fake or real provider was contacted for these):
 
 LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
 - auth via Secrets Store key: PASS (401 without/with wrong key, 200 with key)
-- GET /ready: PASS → {"status":"ready","servableProviders":["akashml","deepinfra","modal"]}
-- non-streaming completions: PASS — every request 200; final provider deepinfra with
-  x-gruuvix-attempts 1–3 (failover absorbed modal 503 + akashml 530 each time)
+- GET /ready: PASS → {"status":"ready","servableProviders":["akashml","crusoe","deepinfra"]}
+- non-streaming completions: PASS — every request 200; crusoe AND deepinfra both served
+  real completions; failover absorbed akashml 530, modal 503 and one transient deepinfra 500
 - streaming (SSE passthrough): PASS — text/event-stream chunks forwarded verbatim
-- NOT verified live: modal serving 200 (app returns 503), akashml serving 200 (edge 530),
+- NOT verified live: akashml serving 200 (530 pending owner fix), modal (disabled),
   client-abort/stream-interrupt against real upstreams.
 
 ## Problems Found
@@ -223,13 +224,12 @@ LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
   verify the current base URL and that the key/account actually serves
   `openai/gpt-oss-120b`; fix via admin API (`PATCH /internal/providers/akashml`) or by
   updating the AkashML entry in defaults.ts + a DEFAULT_SEED_VERSION bump.
-- **Modal dropped from rotation** (owner decision, 2026-09-20): seed v5 sets modal
-  enabled=false — the app returned instant 503s (down, not cold start). Re-enable via
-  admin API (`PATCH /internal/providers/modal {"enabled":true}`) once the app is
-  persistently deployed (`modal deploy`, not `modal serve`). Credentials stay bound.
-- Until AkashML serves, DeepInfra carries 100% of traffic (correct health-aware behavior).
-  When it serves, requests rotate akashml ⇄ deepinfra.
-- Re-run `npm run smoke` once AkashML serves, and confirm the 2-provider round-robin.
+- **Modal**: dropped from rotation (seed v5, enabled=false) — app returned instant 503s
+  (down, not cold start). Re-enable via admin API once persistently redeployed.
+- **Crusoe added & live** (seed v6, 2026-09-20): base
+  `https://api.inference.crusoecloud.com/v1`, model `openai/gpt-oss-120b`, key
+  `CRUSOE_API_KEY` (Secrets Store) — serving real completions through the router.
+- Re-run `npm run smoke` once AkashML serves to confirm full 3-provider rotation.
 - Optional future: weighted routing, per-provider RPM quotas, multiple logical models,
   latency EWMA in selection, rolling error-rate metrics endpoint.
 

@@ -14,7 +14,7 @@ export const DEFAULT_LEASE_TTL_MS = 600_000; // 10 min: must exceed longest gene
  * upserted and the re-asserted providers' breaker state resets to healthy. Admin-created
  * providers and admin config edits to OTHER fields after the bump are untouched.
  */
-export const DEFAULT_SEED_VERSION = 5; // v5: modal disabled — rotation is deepinfra + akashml
+export const DEFAULT_SEED_VERSION = 6; // v6: add crusoe — rotation is deepinfra + akashml + crusoe
 
 type Seed = Omit<
   ProviderConfig,
@@ -44,6 +44,23 @@ export const DEFAULT_PROVIDER_SEED: Seed[] = [
     baseUrlEnv: null,
     modelId: "openai/gpt-oss-120b",
     apiKeyEnv: "AKASHML_API_KEY",
+    timeoutMs: 60_000,
+    streamIdleTimeoutMs: 60_000,
+    cooldownMs: 30_000,
+    authFailureCooldownMs: 15 * 60_000,
+    creditFailureCooldownMs: 30 * 60_000,
+    failureThreshold: 2,
+    maxConcurrentRequests: 50,
+  },
+  {
+    id: "crusoe",
+    enabled: true,
+    // Crusoe Cloud OpenAI-compatible inference. `${baseUrl}/chat/completions` is the
+    // endpoint; trailing slashes in configured URLs are normalized on join.
+    baseUrl: "https://api.inference.crusoecloud.com/v1",
+    baseUrlEnv: null,
+    modelId: "openai/gpt-oss-120b",
+    apiKeyEnv: "CRUSOE_API_KEY",
     timeoutMs: 60_000,
     streamIdleTimeoutMs: 60_000,
     cooldownMs: 30_000,
