@@ -1,4 +1,4 @@
-import { getEnvVar, type Env } from "../config/env";
+import { resolveSecret, type Env } from "../config/env";
 import type { AiRouterCoordinator } from "../durableObjects/AiRouterCoordinator";
 import { errorResponse } from "../utils/errors";
 
@@ -19,21 +19,23 @@ export async function handleReady(env: Env, requestId: string): Promise<Response
   const stub = env.AI_ROUTER.getByName("gpt-oss-120b") as unknown as AiRouterCoordinator;
   const { providers } = await stub.getReadiness();
 
-  const servable = providers.filter((p) => {
+  const servableIds: string[] = [];
+  for (const p of providers) {
     const hasUrl =
       (p.baseUrl !== null && p.baseUrl !== "") ||
-      (p.baseUrlEnv !== null && getEnvVar(env, p.baseUrlEnv) !== undefined);
-    const hasKey = p.apiKeyEnv === null || getEnvVar(env, p.apiKeyEnv) !== undefined;
-    return hasUrl && hasKey;
-  });
+      (p.baseUrlEnv !== null && (await resolveSecret(env, p.baseUrlEnv)) !== undefined);
+    const hasKey =
+      p.apiKeyEnv === null || (await resolveSecret(env, p.apiKeyEnv)) !== undefined;
+    if (hasUrl && hasKey) servableIds.push(p.id);
+  }
 
-  const ready = servable.length > 0;
+  const ready = servableIds.length > 0;
   const headers = { "Content-Type": "application/json", "x-request-id": requestId };
   if (ready) {
-    return new Response(
-      JSON.stringify({ status: "ready", servableProviders: servable.map((p) => p.id) }),
-      { status: 200, headers },
-    );
+    return new Response(JSON.stringify({ status: "ready", servableProviders: servableIds }), {
+      status: 200,
+      headers,
+    });
   }
   const notReady = errorResponse(
     503,

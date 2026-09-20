@@ -21,7 +21,11 @@ upstream adapter; secrets only as Cloudflare env bindings referenced by name.
 
 ## Current Phase
 
-ALL PHASES 1–9 IMPLEMENTED AND TESTED. See Implementation Status.
+IMPLEMENTED, DEPLOYED & LIVE-VERIFIED at https://gruuvix-ai-router.marendra.workers.dev
+(env `production`, secrets from the account-level Secrets Store). Live traffic confirmed:
+auth, /ready, non-streaming + streaming completions, and failover (modal 503 / akashml 530
+→ deepinfra 200 on every request). Two upstreams need owner-side attention — see
+Remaining Work.
 
 ## Implementation Status
 
@@ -158,8 +162,16 @@ https://github.com/marendra/ai-router.git).
 ```
 
 NOT tested (no fake or real provider was contacted for these):
-- live DeepInfra / AkashML / Modal calls — requires real credentials + first deploy;
-  use `npm run smoke` (tiny completions) after `npm run deploy`.
+- (fake-provider suite) nothing — all 24 required scenarios are covered.
+
+LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
+- auth via Secrets Store key: PASS (401 without/with wrong key, 200 with key)
+- GET /ready: PASS → {"status":"ready","servableProviders":["akashml","deepinfra","modal"]}
+- non-streaming completions: PASS — every request 200; final provider deepinfra with
+  x-gruuvix-attempts 1–3 (failover absorbed modal 503 + akashml 530 each time)
+- streaming (SSE passthrough): PASS — text/event-stream chunks forwarded verbatim
+- NOT verified live: modal serving 200 (app returns 503), akashml serving 200 (edge 530),
+  client-abort/stream-interrupt against real upstreams.
 
 ## Problems Found
 
@@ -175,6 +187,21 @@ NOT tested (no fake or real provider was contacted for these):
 - auth (401/403), credit (402) and model-config (404) faults are deterministic, so the DO
   trips their (long) cooldown on the FIRST occurrence; transient classes honor
   `failureThreshold`. Implemented in `AiRouterCoordinator.reportFailure`.
+- Cloudflare Secrets Store bindings are NOT strings: `env.NAME` is `{ get(): Promise<string> }`.
+  `resolveSecret()` in `src/config/env.ts` handles both forms; auth/readiness/config
+  resolution is async accordingly.
+- `secrets_store_secrets` live under the `production` env in wrangler.jsonc (deploy with
+  `npm run deploy` → `wrangler deploy --env production`). Top-level (default) env keeps
+  plain bindings for tests/`wrangler dev`. CAUTION: wrangler environments do NOT inherit
+  `vars`/bindings — env.production redeclares vars + the AI_ROUTER DO binding.
+- Live-only bug the fake-provider suite could NOT catch: `waitUntil: ctx.waitUntil`
+  (destructured) throws "Illegal invocation" in production; must wrap:
+  `(p) => ctx.waitUntil(p)`.
+- `DEFAULT_SEED_VERSION` (src/config/defaults.ts): bumping it re-asserts default provider
+  config onto the live DO and resets those providers' breaker state (config-fix recovery).
+  Live DO is at seed version 4.
+- Live upstream findings: akashml answers HTTP 530 (edge-level; endpoint/key to verify),
+  modal answers HTTP 503 (app not serving — start/verify the Modal app); deepinfra healthy.
 
 ## Known Limitations
 
@@ -192,15 +219,20 @@ NOT tested (no fake or real provider was contacted for these):
 
 ## Remaining Work
 
-- Fill real values: secrets (`wrangler secret put ...`) and `MODAL_BASE_URL`; verify the seeded
-  DeepInfra/AkashML baseUrls + model ids against current provider docs before first deploy.
-- First real deployment (`npm run deploy`) + `npm run smoke` against production, then record
-  results in this file.
-- Optional future: weighted routing, per-provider RPM quotas, multiple logical models, latency
-  EWMA in selection, rolling error-rate metrics endpoint.
+- **Modal (owner action)**: the configured endpoint answers HTTP 503 — start/verify the
+  Modal app is deployed and serving. The router side (URL from MODAL_BASE_URL, Bearer
+  MODAL_API_KEY) is wired and will pick it back up automatically after cooldown.
+- **AkashML (owner action)**: api.akash.network/v1/chat/completions answers HTTP 530 —
+  verify the current base URL and that the key/account actually serves
+  `openai/gpt-oss-120b`; fix via admin API (`PATCH /internal/providers/akashml`) or by
+  updating the AkashML entries in defaults.ts + a DEFAULT_SEED_VERSION bump.
+- Re-run `npm run smoke` once both upstreams serve, and confirm the 3-request round-robin
+  hits three different providers.
+- Optional future: weighted routing, per-provider RPM quotas, multiple logical models,
+  latency EWMA in selection, rolling error-rate metrics endpoint.
 
 ## Recommended Next Step
 
-Deploy to Cloudflare (`wrangler login` then `npm run deploy`), set the five secrets, run
-`npm run smoke` with tiny completions, then flip `ROUTER_DEBUG_HEADERS=true` in a staging env to
-watch failover behave live. Record provider verification results in this HANDOFF.
+Fix the two upstreams above, then run `GRUVIX_AI_ROUTER_URL=https://gruuvix-ai-router.marendra.workers.dev GRUVIX_AI_ROUTER_KEY=<key> npm run smoke`
+and confirm the round-robin rotation (enable ROUTER_DEBUG_HEADERS=true in wrangler.jsonc
+env.production temporarily to see x-gruuvix-provider per response).

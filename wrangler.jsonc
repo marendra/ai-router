@@ -10,7 +10,7 @@
     "LOG_LEVEL": "info",
     // Debug headers (x-gruuvix-provider / x-gruuvix-attempts / x-gruuvix-request-id).
     // Never enable on production unless explicitly needed: reveals internal providers.
-    "ROUTER_DEBUG_HEADERS": "false",
+    "ROUTER_DEBUG_HEADERS": "true",
     // Upper bound on upstream attempts per client request (bounded further by
     // number of enabled providers). "3" is a safe initial default.
     "MAX_PROVIDER_ATTEMPTS": "3",
@@ -34,7 +34,64 @@
       "tag": "v1",
       "new_sqlite_classes": ["AiRouterCoordinator"]
     }
-  ]
+  ],
+
+  // Deployed environments. Secrets live in the account-level Secrets Store
+  // (Workers > Secrets Store, store "default_secrets_store"); the default (local
+  // dev / tests) environment instead uses plain bindings from .dev.vars.
+  "env": {
+    "production": {
+      "name": "gruuvix-ai-router",
+      // NOTE: wrangler environments do not inherit vars or bindings — a production
+      // env must redeclare everything it needs.
+      "vars": {
+        "LOG_LEVEL": "info",
+        "ROUTER_DEBUG_HEADERS": "false",
+        "MAX_PROVIDER_ATTEMPTS": "3",
+        "LEASE_TTL_MS": "600000"
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "AI_ROUTER",
+            "class_name": "AiRouterCoordinator"
+          }
+        ]
+      },
+      "secrets_store_secrets": [
+        {
+          "binding": "GRUVIX_AI_ROUTER_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "GRUVIX_AI_ROUTER_KEY"
+        },
+        {
+          "binding": "GRUVIX_AI_ROUTER_ADMIN_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "GRUVIX_AI_ROUTER_ADMIN_KEY"
+        },
+        {
+          "binding": "DEEPINFRA_API_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "DEEPINFRA_API_KEY"
+        },
+        {
+          "binding": "AKASHML_API_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "AKASHML_API_KEY"
+        },
+        {
+          "binding": "MODAL_BASE_URL",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "MODAL_BASE_URL"
+        },
+        {
+          "binding": "MODAL_API_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "MODAL_API_KEY"
+        }
+      ]
+    }
+  },
 
   // Secrets (set with `wrangler secret put <NAME>`):
   //   GRUVIX_AI_ROUTER_KEY       - bearer key Gruuvix uses against this router

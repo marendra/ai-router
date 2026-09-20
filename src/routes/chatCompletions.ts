@@ -6,7 +6,7 @@
  * 2xx stream has started, never replay with another provider.
  */
 import { LOGICAL_MODEL, DEFAULT_LEASE_TTL_MS, DEFAULT_MAX_PROVIDER_ATTEMPTS } from "../config/defaults";
-import { getEnvVar, type Env } from "../config/env";
+import { getEnvVar, resolveSecret, type Env } from "../config/env";
 import { callProvider } from "../providers/openAiCompatibleProvider";
 import { classifyFetchError, classifyUpstreamStatus, shouldFailover } from "../router/failureClassifier";
 import type { AiRouterCoordinator } from "../durableObjects/AiRouterCoordinator";
@@ -122,7 +122,7 @@ export async function handleChatCompletions(
 
     // Resolve config against env bindings. Missing configuration is a provider fault.
     const baseUrl =
-      cfg.baseUrl ?? (cfg.baseUrlEnv ? getEnvVar(env, cfg.baseUrlEnv) : undefined);
+      cfg.baseUrl ?? (cfg.baseUrlEnv ? await resolveSecret(env, cfg.baseUrlEnv) : undefined);
     if (!baseUrl) {
       log.warn("provider_config_missing", { requestId, providerId, field: "baseUrl" });
       await stub.reportFailure({
@@ -135,7 +135,7 @@ export async function handleChatCompletions(
       lastFailureClass = "model_configuration_error";
       continue;
     }
-    const apiKey = cfg.apiKeyEnv ? getEnvVar(env, cfg.apiKeyEnv) : undefined;
+    const apiKey = cfg.apiKeyEnv ? await resolveSecret(env, cfg.apiKeyEnv) : undefined;
     if (cfg.apiKeyEnv && !apiKey) {
       log.warn("provider_config_missing", { requestId, providerId, field: cfg.apiKeyEnv });
       await stub.reportFailure({
@@ -224,7 +224,8 @@ export async function handleChatCompletions(
       config: cfg,
       requestId,
       startedAt,
-      waitUntil: ctx.waitUntil,
+      // NOTE: must wrap — destructured ctx.waitUntil loses its `this` in production.
+      waitUntil: (promise: Promise<unknown>) => ctx.waitUntil(promise),
     });
     log.info("stream_started", { requestId, providerId, attempt });
     return new Response(readable, { status: upstream.status, headers: streamHeaders });

@@ -39,15 +39,21 @@ npm run dev         # local dev (needs .dev.vars — copy .dev.vars.example)
 
 ## Deploy (explicitly only — never automatic)
 
+`npm run deploy` runs `wrangler deploy --env production`, which binds the account-level
+**Secrets Store** secrets declared in `wrangler.jsonc` (store `default_secrets_store`):
+`GRUVIX_AI_ROUTER_KEY`, `GRUVIX_AI_ROUTER_ADMIN_KEY`, `DEEPINFRA_API_KEY`,
+`AKASHML_API_KEY`, `MODAL_BASE_URL`, `MODAL_API_KEY`. Create/update those in the
+dashboard (Workers → Secrets Store) — values are write-only there, which is the point.
+
+Notes:
+- wrangler environments do NOT inherit vars/bindings: `env.production` redeclares the
+  vars and the `AI_ROUTER` Durable Object binding. Keep both in sync if you add more.
+- Alternative (per-worker secrets instead of the store): `npx wrangler secret put <NAME>`
+  for each — the code accepts both (plain strings and store bindings).
+- Local dev uses `.dev.vars` (copy `.dev.vars.example`) with the default environment.
+
 ```bash
 wrangler login
-wrangler secret put GRUVIX_AI_ROUTER_KEY
-wrangler secret put GRUVIX_AI_ROUTER_ADMIN_KEY
-wrangler secret put DEEPINFRA_API_KEY
-wrangler secret put AKASHML_API_KEY
-wrangler secret put MODAL_BASE_URL      # existing Modal GPT-OSS-120B endpoint (consumed, not redeployed)
-# optional, only if the Modal endpoint enforces auth:
-wrangler secret put MODAL_API_KEY
 npm run deploy
 ```
 

@@ -13,7 +13,7 @@
  */
 import { requireAdminKey } from "./auth/adminAuth";
 import { requireRouterKey } from "./auth/routerAuth";
-import { getEnvVar, type Env } from "./config/env";
+import { getEnvVar, resolveSecret, type Env } from "./config/env";
 import { AiRouterCoordinator } from "./durableObjects/AiRouterCoordinator";
 import { handleChatCompletions } from "./routes/chatCompletions";
 import { handleHealth } from "./routes/health";
@@ -54,19 +54,19 @@ export default {
       }
 
       if (path === "/v1/models" && req.method === "GET") {
-        const denied = requireRouterKey(req, getEnvVar(env, "GRUVIX_AI_ROUTER_KEY"));
+        const denied = requireRouterKey(req, await resolveSecret(env, "GRUVIX_AI_ROUTER_KEY"));
         if (denied) return withRequestId(denied, requestId);
         return handleModels(requestId);
       }
 
       if (path === "/v1/chat/completions" && req.method === "POST") {
-        const denied = requireRouterKey(req, getEnvVar(env, "GRUVIX_AI_ROUTER_KEY"));
+        const denied = requireRouterKey(req, await resolveSecret(env, "GRUVIX_AI_ROUTER_KEY"));
         if (denied) return withRequestId(denied, requestId);
         return await handleChatCompletions(req, env, ctx, requestId);
       }
 
       if (path === "/internal/providers" || path.startsWith("/internal/providers/")) {
-        const denied = requireAdminKey(req, getEnvVar(env, "GRUVIX_AI_ROUTER_ADMIN_KEY"));
+        const denied = requireAdminKey(req, await resolveSecret(env, "GRUVIX_AI_ROUTER_ADMIN_KEY"));
         if (denied) return withRequestId(denied, requestId);
         return await handleInternalProviders(req, env, url, requestId);
       }

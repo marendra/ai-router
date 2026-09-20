@@ -27,3 +27,30 @@ export function getEnvVar(env: Env, name: string): string | undefined {
   const value = env[name];
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
+
+function isSecretStoreBinding(value: unknown): value is { get(): Promise<string> } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { get?: unknown }).get === "function"
+  );
+}
+
+/**
+ * Resolve an env binding that may be a plain string (wrangler secret put / vars) OR a
+ * Secrets Store binding ({ get(): Promise<string> }). Returns undefined when the name
+ * does not resolve; never throws and never logs the value.
+ */
+export async function resolveSecret(env: Env, name: string): Promise<string | undefined> {
+  const value = env[name];
+  if (typeof value === "string") return value.length > 0 ? value : undefined;
+  if (isSecretStoreBinding(value)) {
+    try {
+      const resolved = await value.get();
+      return resolved.length > 0 ? resolved : undefined;
+    } catch {
+      return undefined; // missing/unreadable store secret
+    }
+  }
+  return undefined;
+}

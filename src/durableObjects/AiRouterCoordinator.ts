@@ -10,7 +10,7 @@
  * SQLite is the only source of truth — hibernation/eviction is a non-event.
  */
 import { DurableObject } from "cloudflare:workers";
-import { DEFAULT_PROVIDER_SEED, LOGICAL_MODEL } from "../config/defaults";
+import { DEFAULT_PROVIDER_SEED, DEFAULT_SEED_VERSION, LOGICAL_MODEL } from "../config/defaults";
 import type {
   Lease,
   ProviderConfig,
@@ -184,12 +184,15 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
     super(ctx, env);
     this.sql = ctx.storage.sql;
     // Idempotent, synchronous bootstrap: schema + first-run seed of default providers.
+    // A bumped DEFAULT_SEED_VERSION re-asserts the default config rows (upsert) without
+    // touching runtime health state or admin-created providers.
     this.sql.exec(SCHEMA);
     const seededRows = [
       ...this.sql.exec("SELECT COUNT(*) AS n FROM providers"),
     ] as { n: number }[];
     const seeded = seededRows[0] as { n: number };
-    if (seeded.n === 0) {
+    const storedSeed = this.getMetaNumber("seed_version", 1);
+    if (seeded.n === 0 || storedSeed < DEFAULT_SEED_VERSION) {
       const now = Date.now();
       for (const seed of DEFAULT_PROVIDER_SEED) {
         const cfg: ProviderConfig = {
@@ -200,9 +203,43 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
           updatedAt: now,
         };
         this.writeConfig(cfg);
-        this.writeState(initialState(cfg.id));
+        // Fresh config invalidates stale health state (e.g. cooldowns caused by the
+        // old configuration), so re-asserted providers start healthy again.
+        this.resetSeedState(cfg.id);
       }
+      this.setMetaNumber("seed_version", DEFAULT_SEED_VERSION);
     }
+  }
+
+  /** Re-asserted defaults: baseline healthy state, preserving success/failure history. */
+  private resetSeedState(providerId: string): void {
+    this.sql.exec(
+      `INSERT INTO provider_state (
+        provider_id, status, consecutive_failures, cooldown_until, half_open_probe_active,
+        last_success_at, last_failure_at, last_failure_status
+      ) VALUES (?, 'healthy', 0, NULL, 0, NULL, NULL, NULL)
+      ON CONFLICT(provider_id) DO UPDATE SET
+        status='healthy', consecutive_failures=0, cooldown_until=NULL, half_open_probe_active=0`,
+      providerId,
+    );
+  }
+
+  private getMetaNumber(key: string, fallback: number): number {
+    const rows = [
+      ...this.sql.exec("SELECT value FROM router_state WHERE key = ?", key),
+    ] as { value: string }[];
+    const row = rows[0];
+    const parsed = row ? Number.parseInt(row.value, 10) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private setMetaNumber(key: string, value: number): void {
+    this.sql.exec(
+      `INSERT INTO router_state (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+      key,
+      String(value),
+    );
   }
 
   // ------------------------------------------------------------ persistence
@@ -254,6 +291,24 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
         cooldown_until=excluded.cooldown_until, half_open_probe_active=excluded.half_open_probe_active,
         last_success_at=excluded.last_success_at, last_failure_at=excluded.last_failure_at,
         last_failure_status=excluded.last_failure_status`,
+      state.providerId,
+      state.status,
+      state.consecutiveFailures,
+      state.cooldownUntil,
+      state.halfOpenProbeActive ? 1 : 0,
+      state.lastSuccessAt,
+      state.lastFailureAt,
+      state.lastFailureStatus,
+    );
+  }
+
+  /** Seed refresh: inserts baseline state only for brand-new providers, never resets health. */
+  private writeStateIfMissing(state: ProviderRuntimeState): void {
+    this.sql.exec(
+      `INSERT OR IGNORE INTO provider_state (
+        provider_id, status, consecutive_failures, cooldown_until, half_open_probe_active,
+        last_success_at, last_failure_at, last_failure_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       state.providerId,
       state.status,
       state.consecutiveFailures,
