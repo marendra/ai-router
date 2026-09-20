@@ -1,0 +1,27 @@
+{
+  "name": "gruuvix-ai-router",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Gruuvix AI Router - OpenAI-compatible routing layer over DeepInfra/AkashML/Modal for gpt-oss-120b",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "wrangler deploy --dry-run",
+    "smoke": "tsx scripts/smoke-router.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.10.15",
+    "@cloudflare/workers-types": "^5.20260920.1",
+    "@types/node": "^26.6.2",
+    "openai": "^7.20.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vitest": "3.2",
+    "wrangler": "^4.135.0"
+  }
+}

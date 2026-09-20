@@ -1,0 +1,15 @@
+# Copy to .dev.vars for local `wrangler dev` and fill in real values.
+# NEVER commit .dev.vars - it is gitignored on purpose.
+
+# --- Router auth (Gruuvix -> Router) ---
+GRUVIX_AI_ROUTER_KEY=
+GRUVIX_AI_ROUTER_ADMIN_KEY=
+
+# --- Upstream provider keys (Router -> providers) ---
+DEEPINFRA_API_KEY=
+AKASHML_API_KEY=
+
+# --- Existing Modal GPT-OSS-120B endpoint (consumed, NOT redeployed) ---
+MODAL_BASE_URL=
+# Optional: only if the Modal endpoint enforces authentication
+MODAL_API_KEY=

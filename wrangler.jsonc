@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gruuvix-ai-router",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  "vars": {
+    "LOG_LEVEL": "info",
+    // Debug headers (x-gruuvix-provider / x-gruuvix-attempts / x-gruuvix-request-id).
+    // Never enable on production unless explicitly needed: reveals internal providers.
+    "ROUTER_DEBUG_HEADERS": "false",
+    // Upper bound on upstream attempts per client request (bounded further by
+    // number of enabled providers). "3" is a safe initial default.
+    "MAX_PROVIDER_ATTEMPTS": "3",
+    // Lease TTL: how long an acquire() lease counts toward provider concurrency
+    // if the Worker never reports back (crash safety). Must comfortably exceed
+    // the longest streaming generation.
+    "LEASE_TTL_MS": "600000"
+  },
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AI_ROUTER",
+        "class_name": "AiRouterCoordinator"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AiRouterCoordinator"]
+    }
+  ]
+
+  // Secrets (set with `wrangler secret put <NAME>`):
+  //   GRUVIX_AI_ROUTER_KEY       - bearer key Gruuvix uses against this router
+  //   GRUVIX_AI_ROUTER_ADMIN_KEY - bearer key for /internal/* admin routes
+  //   DEEPINFRA_API_KEY          - upstream key for DeepInfra
+  //   AKASHML_API_KEY            - upstream key for AkashML
+  //   MODAL_BASE_URL             - URL of the EXISTING Modal GPT-OSS-120B endpoint (not a secret, but env-managed)
+  //   MODAL_API_KEY              - optional; only if the Modal endpoint enforces auth
+}
