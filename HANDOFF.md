@@ -219,16 +219,16 @@ LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
 
 ## Remaining Work
 
-- **AkashML (owner action)**: api.akash.network/v1/chat/completions answers HTTP 530 —
-  verify the current base URL and that the key/account actually serves
-  `openai/gpt-oss-120b`; fix via admin API (`PATCH /internal/providers/akashml`) or by
-  updating the AkashML entry in defaults.ts + a DEFAULT_SEED_VERSION bump.
-- **Modal**: dropped from rotation (seed v5, enabled=false) — app returned instant 503s
-  (down, not cold start). Re-enable via admin API once persistently redeployed.
-- **Crusoe added & live** (seed v6, 2026-09-20): base
-  `https://api.inference.crusoecloud.com/v1`, model `openai/gpt-oss-120b`, key
-  `CRUSOE_API_KEY` (Secrets Store) — serving real completions through the router.
-- Re-run `npm run smoke` once AkashML serves to confirm full 3-provider rotation.
+- **RESOLVED — AkashML root cause** (seed v7): `api.akash.network` lost its DNS record —
+  AkashML migrated to their own domain (old host 301s to akashml.com). akashml now points
+  at `https://api.akashml.com/v1`; verified live: key works, serves 200, rotates.
+- **Modal**: disabled since seed v5 (instant 503s — app down, not cold start). Re-enable
+  via admin API (`PATCH /internal/providers/modal {"enabled":true}`) once persistently
+  redeployed.
+- **Crusoe** live since seed v6: `https://api.inference.crusoecloud.com/v1`,
+  `openai/gpt-oss-120b`, `CRUSOE_API_KEY` (Secrets Store).
+- Default `reasoning_effort=low` injected upstream unless the client sends one (var
+  `DEFAULT_REASONING_EFFORT`).
 - Optional future: weighted routing, per-provider RPM quotas, multiple logical models,
   latency EWMA in selection, rolling error-rate metrics endpoint.
 
