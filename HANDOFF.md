@@ -82,6 +82,8 @@ scripts/smoke-router.ts             manual live smoke via official OpenAI SDK (n
 scripts/tsconfig.json               node-types config for the smoke script
 schema.sql                          D1 schema for the usage ledger (provider_calls)
 src/usage/usageLedger.ts            async D1 recorder + usage extraction (JSON + SSE tail scan)
+src/routes/usageQuery.ts            GET /v1/usage — date-range aggregates over the ledger (router-key auth)
+test/usageQuery.test.ts             range parsing + endpoint auth/degradation tests
 test/usage.test.ts                  usage extraction unit tests (ledger write is production-only)
 test/helpers.ts                     fetchMock fake-provider helpers, DO stub factory
 test/unit.test.ts                   classifier, url join, request-id, timing-safe compare

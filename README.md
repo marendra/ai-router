@@ -65,8 +65,19 @@ admin API) before first deploy — they are initial defaults, not guessed produc
 Every provider attempt is logged asynchronously to D1 (`gruuvix-usage.provider_calls`):
 tokens in/out, duration, status, failure class — never prompt/completion text.
 
+**Query endpoint** (same router key as inference):
+
 ```bash
-# tokens + latency per provider, per day
+curl -H "Authorization: Bearer $GRUVIX_AI_ROUTER_KEY" \
+  "https://gruuvix-ai-router.marendra.workers.dev/v1/usage?from=2026-09-20&to=2026-09-20"
+# optional: &provider=deepinfra  (from/to accept YYYY-MM-DD or ISO datetime; to inclusive; max 92 days)
+```
+
+Returns totals, per-provider aggregates (calls, ok_calls, tokens in/out, avg/max latency)
+and a per-day breakdown.
+
+```bash
+# raw SQL also works — tokens + latency per provider, per day
 npx wrangler d1 execute gruuvix-usage --remote --command "
   SELECT provider, date(ts/1000,'unixepoch') AS day,
          COUNT(*) AS calls,

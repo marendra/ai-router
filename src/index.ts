@@ -20,6 +20,7 @@ import { handleHealth } from "./routes/health";
 import { handleInternalProviders } from "./routes/internalProviders";
 import { handleModels } from "./routes/models";
 import { handleReady } from "./routes/ready";
+import { handleUsageQuery } from "./routes/usageQuery";
 import { internalError, notFound } from "./utils/errors";
 import { log, setLogLevel } from "./utils/logging";
 import { resolveRequestId } from "./utils/requestId";
@@ -57,6 +58,13 @@ export default {
         const denied = requireRouterKey(req, await resolveSecret(env, "GRUVIX_AI_ROUTER_KEY"));
         if (denied) return withRequestId(denied, requestId);
         return handleModels(requestId);
+      }
+
+      if (path === "/v1/usage" && req.method === "GET") {
+        // Same router key as inference — Gruuvix can query its own usage.
+        const denied = requireRouterKey(req, await resolveSecret(env, "GRUVIX_AI_ROUTER_KEY"));
+        if (denied) return withRequestId(denied, requestId);
+        return await handleUsageQuery(env, url, requestId);
       }
 
       if (path === "/v1/chat/completions" && req.method === "POST") {
