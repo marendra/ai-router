@@ -117,7 +117,12 @@ const response = await client.chat.completions.create({
 
 ## 6. Check your token usage
 
-The router records tokens in/out, duration and status for every call.
+**Easiest way — the dashboard:** open
+[`https://gruuvix-ai-router.marendra.workers.dev/dashboard`](https://gruuvix-ai-router.marendra.workers.dev/dashboard),
+sign in with the router API key, and tick "keep me logged in for 30 days" — you'll get
+per-provider token charts for the last 7 days plus a full data table, no code needed.
+
+**Programmatic:** the router records tokens in/out, duration and status for every call.
 
 ```bash
 curl -H "Authorization: Bearer $GRUVIX_AI_ROUTER_KEY" \

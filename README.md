@@ -92,6 +92,14 @@ Chosen over R2 JSON dumps on cost: D1 ≈ $1 per 1M row writes (50M/month includ
 Workers Paid) and directly queryable; R2 PUTs cost $4.50 per 1M and would need
 download-and-parse for every question.
 
+## Dashboard
+
+A web dashboard for provider token usage lives at **`/dashboard`** — sign in with the
+router API key (same `GRUVIX_AI_ROUTER_KEY`), tick "keep me logged in for 30 days" and a
+signed HttpOnly cookie keeps the session (the raw key never enters the cookie; rotating
+the key revokes all sessions). It shows per-provider tokens-in/out bar charts for the
+last 7 days and a data table beneath, all powered by `/v1/usage`.
+
 ## Smoke (manual, spends a tiny amount)
 
 ```bash

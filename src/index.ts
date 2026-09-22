@@ -13,15 +13,21 @@
  */
 import { requireAdminKey } from "./auth/adminAuth";
 import { requireRouterKey } from "./auth/routerAuth";
+import { hasDashboardSession } from "./auth/session";
 import { getEnvVar, resolveSecret, type Env } from "./config/env";
 import { AiRouterCoordinator } from "./durableObjects/AiRouterCoordinator";
 import { handleChatCompletions } from "./routes/chatCompletions";
+import {
+  handleDashboardGet,
+  handleDashboardLogin,
+  handleDashboardLogout,
+} from "./routes/dashboard";
 import { handleHealth } from "./routes/health";
 import { handleInternalProviders } from "./routes/internalProviders";
 import { handleModels } from "./routes/models";
 import { handleReady } from "./routes/ready";
 import { handleUsageQuery } from "./routes/usageQuery";
-import { internalError, notFound } from "./utils/errors";
+import { internalError, notFound, unauthorized } from "./utils/errors";
 import { log, setLogLevel } from "./utils/logging";
 import { resolveRequestId } from "./utils/requestId";
 
@@ -60,10 +66,24 @@ export default {
         return handleModels(requestId);
       }
 
+      if (path === "/dashboard") {
+        return handleDashboardGet(req, env, url);
+      }
+      if (path === "/dashboard/login" && req.method === "POST") {
+        return await handleDashboardLogin(req, env);
+      }
+      if (path === "/dashboard/logout" && req.method === "GET") {
+        return handleDashboardLogout();
+      }
+
       if (path === "/v1/usage" && req.method === "GET") {
-        // Same router key as inference — Gruuvix can query its own usage.
-        const denied = requireRouterKey(req, await resolveSecret(env, "GRUVIX_AI_ROUTER_KEY"));
-        if (denied) return withRequestId(denied, requestId);
+        // Same router key as inference — Gruuvix can query its own usage. The dashboard
+        // session cookie (signed against the same key) also grants read access.
+        const routerKey = await resolveSecret(env, "GRUVIX_AI_ROUTER_KEY");
+        const authorized =
+          !requireRouterKey(req, routerKey) ||
+          (routerKey !== undefined && (await hasDashboardSession(req, routerKey)));
+        if (!authorized) return withRequestId(unauthorized(), requestId);
         return await handleUsageQuery(env, url, requestId);
       }
 
