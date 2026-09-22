@@ -2,7 +2,7 @@
 
 Everything your team needs to use the AI Router. **One base URL, one API key, one model
 name** — the router transparently rotates inference providers (DeepInfra / AkashML /
-Crusoe), handles failures, and tracks token usage.
+Crusoe / Novita), handles failures, and tracks token usage.
 
 - **Base URL:** `https://gruuvix-ai-router.marendra.workers.dev`
 - **Model name:** `gpt-oss-120b` (the only supported model)

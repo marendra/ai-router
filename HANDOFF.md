@@ -261,6 +261,19 @@ LIVE smoke (2026-09-20, deployed worker, tiny completions, max_tokens ≤ 16):
 - Admin API has no CSRF concern (bearer-only) but also no rate limiting; protect the route at
   the edge if exposed publicly.
 
+export const DEFAULT_SEED_VERSION = 10; // see src/config/defaults.ts (current: novita added)
+
+## Novita addition (2026-09-22, seed v8→v10)
+
+- Provider `novita`: base `https://api.novita.ai/v3/openai`, model id
+  **`openai/gpt-oss-120b`** (prefixed), key `NOVITA_API_KEY` (Secrets Store, bound in
+  env.production). Two seed fixes were needed: `/openai` path 404'd (correct root is
+  `/v3/openai`) and the unprefixed model id 404'd (Novita uses the `openai/` prefix).
+  Diagnosed via unauthenticated path probes (403 auth-gate vs 404 no-route) + ledger rows.
+- Smoke verified: 4 distinct prompts × 2 rounds, all 200s; Novita served its rotation
+  share with usage rows recorded (first call ~45s cold start, then ~3.7s).
+- Rotation is now 4 providers: akashml, crusoe, deepinfra, novita. Modal still disabled.
+
 ## Remaining Work
 
 - **RESOLVED — AkashML root cause** (seed v7): `api.akash.network` lost its DNS record —

@@ -99,6 +99,11 @@
           "secret_name": "CRUSOE_API_KEY"
         },
         {
+          "binding": "NOVITA_API_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "NOVITA_API_KEY"
+        },
+        {
           "binding": "MODAL_BASE_URL",
           "store_id": "373597b9faeb44839583e3ad2d05801a",
           "secret_name": "MODAL_BASE_URL"

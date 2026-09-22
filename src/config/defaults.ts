@@ -14,7 +14,7 @@ export const DEFAULT_LEASE_TTL_MS = 600_000; // 10 min: must exceed longest gene
  * upserted and the re-asserted providers' breaker state resets to healthy. Admin-created
  * providers and admin config edits to OTHER fields after the bump are untouched.
  */
-export const DEFAULT_SEED_VERSION = 7; // v7: akashml baseUrl → api.akashml.com (domain migration)
+export const DEFAULT_SEED_VERSION = 10; // v10: novita modelId → openai/gpt-oss-120b
 
 type Seed = Omit<
   ProviderConfig,
@@ -61,6 +61,23 @@ export const DEFAULT_PROVIDER_SEED: Seed[] = [
     baseUrlEnv: null,
     modelId: "openai/gpt-oss-120b",
     apiKeyEnv: "CRUSOE_API_KEY",
+    timeoutMs: 60_000,
+    streamIdleTimeoutMs: 60_000,
+    cooldownMs: 30_000,
+    authFailureCooldownMs: 15 * 60_000,
+    creditFailureCooldownMs: 30 * 60_000,
+    failureThreshold: 2,
+    maxConcurrentRequests: 50,
+  },
+  {
+    id: "novita",
+    enabled: true,
+    // Novita AI OpenAI-compatible inference. `${baseUrl}/chat/completions` is the endpoint
+    // (their documented OpenAI root is /v3/openai).
+    baseUrl: "https://api.novita.ai/v3/openai",
+    baseUrlEnv: null,
+    modelId: "openai/gpt-oss-120b", // Novita's slug (404s on the unprefixed id)
+    apiKeyEnv: "NOVITA_API_KEY",
     timeoutMs: 60_000,
     streamIdleTimeoutMs: 60_000,
     cooldownMs: 30_000,
