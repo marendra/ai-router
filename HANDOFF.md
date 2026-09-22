@@ -274,6 +274,16 @@ export const DEFAULT_SEED_VERSION = 10; // see src/config/defaults.ts (current: 
   share with usage rows recorded (first call ~45s cold start, then ~3.7s).
 - Rotation is now 4 providers: akashml, crusoe, deepinfra, novita. Modal still disabled.
 
+## Failure analytics (2026-09-23)
+
+- `/v1/usage` additionally returns `failureClasses` (provider × class × status counts),
+  `recentFailures` (last 20 with UTC timestamps), and per-day `failures` counts in
+  `daily`/`providers` rows. Failed attempts were already ledger rows (status, class,
+  full-stream latency) — this surfaces them.
+- Dashboard: red per-day failure bar chart on each provider card (own scale), failures
+  column (highlighted when > 0) in the day and summary tables, a "Failures by cause"
+  breakdown, and a "Recent failures" feed with timestamps.
+
 ## Remaining Work
 
 - **RESOLVED — AkashML root cause** (seed v7): `api.akash.network` lost its DNS record —

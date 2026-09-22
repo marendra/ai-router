@@ -129,36 +129,78 @@ const DASHBOARD_JS = `
 
     var box = document.getElementById('databox');
     var rows = ['<table><thead><tr><th>Day</th><th>Provider</th>' +
-      '<th class="num">Calls</th><th class="num">Tokens in</th>' +
-      '<th class="num">Tokens out</th></tr></thead><tbody>'];
-    var grand = { calls: 0, tin: 0, tout: 0 };
+      '<th class="num">Calls</th><th class="num">Failures</th>' +
+      '<th class="num">Tokens in</th><th class="num">Tokens out</th></tr></thead><tbody>'];
+    var grand = { calls: 0, fails: 0, tin: 0, tout: 0 };
     var sorted = (data.daily || []).slice().sort(function (a, b) {
       return a.day === b.day ? (a.provider < b.provider ? -1 : 1) : (a.day < b.day ? 1 : -1);
     });
     sorted.forEach(function (r) {
       grand.calls += Number(r.calls || 0);
+      grand.fails += Number(r.failures || 0);
       grand.tin += Number(r.tokens_in || 0);
       grand.tout += Number(r.tokens_out || 0);
       rows.push('<tr><td>' + esc(r.day) + '</td><td>' + esc(r.provider) + '</td>' +
-        '<td class="num">' + fmt(r.calls) + '</td><td class="num">' + fmt(r.tokens_in) +
+        '<td class="num">' + fmt(r.calls) + '</td>' +
+        '<td class="num"' + (Number(r.failures) > 0 ? ' style="color:#ff9aa8;"' : '') + '>' +
+        fmt(r.failures) + '</td>' +
+        '<td class="num">' + fmt(r.tokens_in) +
         '</td><td class="num">' + fmt(r.tokens_out) + '</td></tr>');
     });
     rows.push('<tr class="total"><td colspan="2">Total (7 days)</td>' +
-      '<td class="num">' + fmt(grand.calls) + '</td><td class="num">' + fmt(grand.tin) +
+      '<td class="num">' + fmt(grand.calls) + '</td><td class="num">' + fmt(grand.fails) +
+      '</td><td class="num">' + fmt(grand.tin) +
       '</td><td class="num">' + fmt(grand.tout) + '</td></tr></tbody></table>');
 
     rows.push('<p class="meta" style="margin:12px 0 6px;">Per-provider summary (range):</p>');
     rows.push('<table><thead><tr><th>Provider</th><th class="num">Calls</th>' +
-      '<th class="num">OK</th><th class="num">Tokens in</th><th class="num">Tokens out</th>' +
+      '<th class="num">OK</th><th class="num">Failures</th>' +
+      '<th class="num">Tokens in</th><th class="num">Tokens out</th>' +
       '<th class="num">Avg ms</th><th class="num">Max ms</th></tr></thead><tbody>');
     (data.providers || []).forEach(function (p) {
       rows.push('<tr><td>' + esc(p.provider) + '</td><td class="num">' + fmt(p.calls) +
-        '</td><td class="num">' + fmt(p.ok_calls) + '</td><td class="num">' + fmt(p.tokens_in) +
+        '</td><td class="num">' + fmt(p.ok_calls) + '</td>' +
+        '<td class="num"' + (Number(p.failures) > 0 ? ' style="color:#ff9aa8;"' : '') + '>' +
+        fmt(p.failures) + '</td>' +
+        '<td class="num">' + fmt(p.tokens_in) +
         '</td><td class="num">' + fmt(p.tokens_out) + '</td><td class="num">' + fmt(p.avg_ms) +
         '</td><td class="num">' + fmt(p.max_ms) + '</td></tr>');
     });
     rows.push('</tbody></table>');
+
+    rows.push('<p class="meta" style="margin:12px 0 6px;">Failures by cause (range):</p>');
+    rows.push('<table><thead><tr><th>Provider</th><th>Failure class</th>' +
+      '<th class="num">HTTP status</th><th class="num">Count</th></tr></thead><tbody>');
+    var classes = data.failureClasses || [];
+    if (!classes.length) rows.push('<tr><td colspan="4" class="meta">None 🎉</td></tr>');
+    classes.forEach(function (f) {
+      rows.push('<tr><td>' + esc(f.provider) + '</td><td>' + esc(f.failure_class) + '</td>' +
+        '<td class="num">' + (f.status === null ? '—' : f.status) + '</td>' +
+        '<td class="num">' + fmt(f.count) + '</td></tr>');
+    });
+    rows.push('</tbody></table>');
     box.innerHTML = rows.join('');
+
+    // Recent failures feed (newest first).
+    var failBox = document.getElementById('faillist');
+    var recents = data.recentFailures || [];
+    if (!recents.length) {
+      failBox.innerHTML = 'No failures in the last 7 days 🎉';
+    } else {
+      var frows = ['<table><thead><tr><th>When (UTC)</th><th>Provider</th>' +
+        '<th>Failure class</th><th class="num">HTTP status</th>' +
+        '<th class="num">Latency ms</th></tr></thead><tbody>'];
+      recents.forEach(function (f) {
+        var when = new Date(Number(f.ts)).toISOString().replace('T', ' ').slice(0, 19);
+        frows.push('<tr><td>' + when + '</td><td>' + esc(f.provider) + '</td>' +
+          '<td>' + esc(f.failure_class || 'unknown') + '</td>' +
+          '<td class="num">' + (f.status === null ? '—' : f.status) + '</td>' +
+          '<td class="num">' + fmt(f.latency_ms) + '</td></tr>');
+      });
+      frows.push('</tbody></table>');
+      failBox.innerHTML = frows.join('');
+      failBox.className = '';
+    }
   }
 
   function providerCard(name, perDay, days) {
@@ -167,6 +209,7 @@ const DASHBOARD_JS = `
     var tin = days.map(function (d) { return Number((perDay[d] || {}).tokens_in || 0); });
     var tout = days.map(function (d) { return Number((perDay[d] || {}).tokens_out || 0); });
     var calls = days.map(function (d) { return Number((perDay[d] || {}).calls || 0); });
+    var fails = days.map(function (d) { return Number((perDay[d] || {}).failures || 0); });
     var max = Math.max.apply(null, tin.concat(tout).concat([1]));
     var W = 700, H = 210, plot = 160, base = 170;
     var groupW = (W - 20) / days.length;
@@ -188,15 +231,41 @@ const DASHBOARD_JS = `
     svg.push('<line x1="8" y1="' + base + '" x2="' + (W - 8) + '" y2="' + base +
       '" stroke="#223054" stroke-width="1"/>');
     svg.push('</svg>');
+
+    // Failures per day — own scale (counts are tiny next to token volumes).
+    var maxFail = Math.max.apply(null, fails.concat([1]));
+    var FH = 92, fBase = 62, fPlot = 48;
+    var fsvg = ['<svg viewBox="0 0 ' + W + ' ' + FH + '" style="width:100%;height:auto;">'];
+    days.forEach(function (d, i) {
+      var cx = 10 + groupW * i + (groupW - barW) / 2;
+      var hF = Math.round((fails[i] / maxFail) * fPlot);
+      if (hF > 0) {
+        fsvg.push('<rect x="' + cx + '" y="' + (fBase - hF) + '" width="' + barW +
+          '" height="' + hF + '" rx="3" fill="#e05a6d"><title>' + d + ' — failures: ' +
+          fmt(fails[i]) + ' of ' + fmt(calls[i]) + ' attempts</title></rect>');
+      }
+      fsvg.push('<text x="' + (cx + barW / 2) + '" y="' + (fBase + 16) +
+        '" fill="#8fa1bf" font-size="11" text-anchor="middle">' + d.slice(5) + '</text>');
+    });
+    fsvg.push('<line x1="8" y1="' + fBase + '" x2="' + (W - 8) + '" y2="' + fBase +
+      '" stroke="#223054" stroke-width="1"/>');
+    fsvg.push('</svg>');
+
     var totalIn = tin.reduce(function (a, b) { return a + b; }, 0);
     var totalOut = tout.reduce(function (a, b) { return a + b; }, 0);
+    var totalFails = fails.reduce(function (a, b) { return a + b; }, 0);
     card.innerHTML =
       '<h2>' + esc(name) + '</h2>' +
       '<div class="meta">7-day totals — in: ' + fmt(totalIn) + ' &middot; out: ' + fmt(totalOut) +
-      ' &middot; calls: ' + fmt(calls.reduce(function (a, b) { return a + b; }, 0)) + '</div>' +
+      ' &middot; calls: ' + fmt(calls.reduce(function (a, b) { return a + b; }, 0)) +
+      ' &middot; <span style="color:' + (totalFails > 0 ? '#ff9aa8' : '#35c98e') + ';">failures: ' +
+      fmt(totalFails) + '</span></div>' +
       '<div class="legend"><span><span class="dot" style="background:#4f7dff"></span>tokens in</span>' +
-      '<span><span class="dot" style="background:#35c98e"></span>tokens out</span></div>' +
-      svg.join('');
+      '<span><span class="dot" style="background:#35c98e"></span>tokens out</span>' +
+      '<span><span class="dot" style="background:#e05a6d"></span>failures / day</span></div>' +
+      svg.join('') +
+      '<div class="meta" style="margin-top:8px;">Failures per day</div>' +
+      fsvg.join('');
     return card;
   }
 })();
@@ -214,6 +283,11 @@ function dashboardPage(rangeLabel: string): Response {
     </header>
     <div id="banner" class="banner" style="display:none;"></div>
     <div id="charts" class="grid"></div>
+    <div class="card" id="failcard">
+      <h2>Recent failures</h2>
+      <div class="meta">Failed provider attempts (already absorbed by failover where possible). Last 20 in range.</div>
+      <div id="faillist" class="meta">Loading…</div>
+    </div>
     <div class="card" id="databox"><p class="meta">Loading usage data…</p></div>`,
   );
 }

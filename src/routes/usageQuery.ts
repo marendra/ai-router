@@ -49,6 +49,7 @@ interface ProviderAggregate {
   provider: string;
   calls: number;
   ok_calls: number;
+  failures: number;
   tokens_in: number;
   tokens_out: number;
   tokens_total: number;
@@ -60,9 +61,27 @@ interface DailyRow {
   day: string;
   provider: string;
   calls: number;
+  failures: number;
   tokens_in: number;
   tokens_out: number;
 }
+
+interface FailureClassRow {
+  provider: string;
+  failure_class: string;
+  status: number | null;
+  count: number;
+}
+
+interface RecentFailureRow {
+  ts: number;
+  provider: string;
+  failure_class: string | null;
+  status: number | null;
+  latency_ms: number;
+}
+
+const FAILED_ATTEMPT = "(status IS NULL OR status < 200 OR status >= 300)";
 
 export async function handleUsageQuery(env: Env, url: URL, requestId: string): Promise<Response> {
   // Validate inputs first so clients get 400s (not a ledger-unavailable 503) for bad params.
@@ -96,6 +115,7 @@ export async function handleUsageQuery(env: Env, url: URL, requestId: string): P
     `SELECT provider,
             COUNT(*) AS calls,
             SUM(CASE WHEN status BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS ok_calls,
+            SUM(CASE WHEN ${FAILED_ATTEMPT} THEN 1 ELSE 0 END) AS failures,
             SUM(COALESCE(prompt_tokens, 0)) AS tokens_in,
             SUM(COALESCE(completion_tokens, 0)) AS tokens_out,
             SUM(COALESCE(total_tokens, 0)) AS tokens_total,
@@ -113,6 +133,7 @@ export async function handleUsageQuery(env: Env, url: URL, requestId: string): P
     `SELECT date(ts / 1000, 'unixepoch') AS day,
             provider,
             COUNT(*) AS calls,
+            SUM(CASE WHEN ${FAILED_ATTEMPT} THEN 1 ELSE 0 END) AS failures,
             SUM(COALESCE(prompt_tokens, 0)) AS tokens_in,
             SUM(COALESCE(completion_tokens, 0)) AS tokens_out
      FROM provider_calls
@@ -122,6 +143,29 @@ export async function handleUsageQuery(env: Env, url: URL, requestId: string): P
   )
     .bind(from, to, ...providerBind)
     .all<DailyRow>();
+
+  const failureClasses = await env.USAGE_DB.prepare(
+    `SELECT provider,
+            COALESCE(NULLIF(failure_class, ''), 'unknown') AS failure_class,
+            status,
+            COUNT(*) AS count
+     FROM provider_calls
+     WHERE ts >= ? AND ts < ?${providerClause} AND ${FAILED_ATTEMPT}
+     GROUP BY provider, failure_class, status
+     ORDER BY count DESC`,
+  )
+    .bind(from, to, ...providerBind)
+    .all<FailureClassRow>();
+
+  const recentFailures = await env.USAGE_DB.prepare(
+    `SELECT ts, provider, failure_class, status, latency_ms
+     FROM provider_calls
+     WHERE ts >= ? AND ts < ?${providerClause} AND ${FAILED_ATTEMPT}
+     ORDER BY ts DESC
+     LIMIT 20`,
+  )
+    .bind(from, to, ...providerBind)
+    .all<RecentFailureRow>();
 
   const providers = perProvider.results ?? [];
   const total = providers.reduce(
@@ -140,6 +184,8 @@ export async function handleUsageQuery(env: Env, url: URL, requestId: string): P
       total,
       providers,
       daily: daily.results ?? [],
+      failureClasses: failureClasses.results ?? [],
+      recentFailures: recentFailures.results ?? [],
     }),
     {
       status: 200,
