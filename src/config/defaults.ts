@@ -14,7 +14,7 @@ export const DEFAULT_LEASE_TTL_MS = 600_000; // 10 min: must exceed longest gene
  * upserted and the re-asserted providers' breaker state resets to healthy. Admin-created
  * providers and admin config edits to OTHER fields after the bump are untouched.
  */
-export const DEFAULT_SEED_VERSION = 12; // v12: crusoe2 uses CRUSOE_SECOND_KEY (separate account)
+export const DEFAULT_SEED_VERSION = 13; // v13: add akashml2 (6-provider rotation, 2x akashml slots)
 
 type Seed = Omit<
   ProviderConfig,
@@ -44,6 +44,22 @@ export const DEFAULT_PROVIDER_SEED: Seed[] = [
     baseUrlEnv: null,
     modelId: "openai/gpt-oss-120b",
     apiKeyEnv: "AKASHML_API_KEY",
+    timeoutMs: 60_000,
+    streamIdleTimeoutMs: 60_000,
+    cooldownMs: 30_000,
+    authFailureCooldownMs: 15 * 60_000,
+    creditFailureCooldownMs: 30 * 60_000,
+    failureThreshold: 2,
+    maxConcurrentRequests: 50,
+  },
+  {
+    id: "akashml2",
+    enabled: true,
+    // Second AkashML account (separate credit card / rate-limit bucket).
+    baseUrl: "https://api.akashml.com/v1", // api.akash.network is dead (NXDOMAIN) — AkashML migrated domains
+    baseUrlEnv: null,
+    modelId: "openai/gpt-oss-120b",
+    apiKeyEnv: "AKASH_SECOND_KEY",
     timeoutMs: 60_000,
     streamIdleTimeoutMs: 60_000,
     cooldownMs: 30_000,

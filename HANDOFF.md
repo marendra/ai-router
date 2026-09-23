@@ -272,10 +272,10 @@ export const DEFAULT_SEED_VERSION = 10; // see src/config/defaults.ts (current: 
   Diagnosed via unauthenticated path probes (403 auth-gate vs 404 no-route) + ledger rows.
 - Smoke verified: 4 distinct prompts × 2 rounds, all 200s; Novita served its rotation
   share with usage rows recorded (first call ~45s cold start, then ~3.7s).
-- Rotation is now **5 providers**: akashml, crusoe, **crusoe2** (second Crusoe account,
-  key `CRUSOE_SECOND_KEY` — separate rate-limit bucket, seed v12), deepinfra, novita.
-  Modal still disabled. Dashboard auto-discovers providers from usage data (no changes
-  needed per provider).
+- Rotation is now **6 providers** (alphabetical cycle): akashml, **akashml2** (second
+  AkashML account, key `AKASH_SECOND_KEY`, seed v13), crusoe, crusoe2 (second Crusoe
+  account, `CRUSOE_SECOND_KEY`), deepinfra, novita. Modal still disabled. Dashboard
+  auto-discovers providers from usage data (no changes needed per provider).
 
 ## Failure analytics (2026-09-23)
 

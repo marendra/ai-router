@@ -94,6 +94,11 @@
           "secret_name": "AKASHML_API_KEY"
         },
         {
+          "binding": "AKASH_SECOND_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "AKASH_SECOND_KEY"
+        },
+        {
           "binding": "CRUSOE_API_KEY",
           "store_id": "373597b9faeb44839583e3ad2d05801a",
           "secret_name": "CRUSOE_API_KEY"
