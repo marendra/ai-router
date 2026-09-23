@@ -57,6 +57,10 @@ function page(title: string, body: string): Response {
   button:hover { background: #3d6cf0; }
   .center { max-width: 420px; margin: 8vh auto 0; }
   .logout { font-size: 13px; }
+  .todaygrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .stat { background: #0d1428; border: 1px solid #223054; border-radius: 8px; padding: 10px 12px; }
+  .stat .p { font-weight: 600; font-size: 13px; }
+  .stat .v { font-size: 13px; margin-top: 4px; }
 </style>
 </head>
 <body><div class="wrap">${body}</div>
@@ -123,6 +127,25 @@ const DASHBOARD_JS = `
       if (!byProvider[row.provider]) byProvider[row.provider] = {};
       byProvider[row.provider][row.day] = row;
     });
+
+    // Today strip (WIB) — tokens in/out per provider, above everything else.
+    var wibToday = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jakarta',
+      year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    var todayRows = (data.daily || []).filter(function (r) { return r.day === wibToday; })
+      .slice().sort(function (a, b) { return (b.tokens_in || 0) - (a.tokens_in || 0); });
+    var tgrid = document.getElementById('todaygrid');
+    if (!todayRows.length) {
+      tgrid.innerHTML = '<span class="meta">No calls yet today (WIB).</span>';
+    } else {
+      tgrid.innerHTML = todayRows.map(function (r) {
+        return '<div class="stat"><div class="p">' + esc(r.provider) + '</div>' +
+          '<div class="v"><span style="color:#7aa2ff">in ' + fmt(r.tokens_in) + '</span> &middot; ' +
+          '<span style="color:#35c98e">out ' + fmt(r.tokens_out) + '</span></div>' +
+          '<div class="meta">' + fmt(r.calls) + ' calls' +
+          (Number(r.failures) > 0 ? ' &middot; <span style="color:#ff9aa8">' +
+            fmt(r.failures) + ' failed</span>' : '') + '</div></div>';
+      }).join('');
+    }
 
     var charts = document.getElementById('charts');
     charts.innerHTML = '';
@@ -287,6 +310,10 @@ function dashboardPage(rangeLabel: string): Response {
       <a class="logout" href="/dashboard/logout">Log out</a>
     </header>
     <div id="banner" class="banner" style="display:none;"></div>
+    <div class="card" id="todaybox">
+      <h2>Today <span class="meta">(WIB)</span></h2>
+      <div id="todaygrid" class="todaygrid"><span class="meta">Loading…</span></div>
+    </div>
     <div id="charts" class="grid"></div>
     <div class="card" id="failcard">
       <h2>Recent failures</h2>

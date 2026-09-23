@@ -71,8 +71,9 @@ describe("dashboard session usage", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("Provider Token Usage");
-    expect(html).toContain("id=\"charts\"");
-    expect(html).toContain("id=\"databox\"");
+    expect(html).toContain('id="todaybox"'); // today strip (WIB) above the summaries
+    expect(html).toContain('id="charts"');
+    expect(html).toContain('id="databox"');
   });
 
   it("lets the cookie authorize /v1/usage without a bearer token", async () => {
