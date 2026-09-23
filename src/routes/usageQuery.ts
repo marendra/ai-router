@@ -20,15 +20,21 @@ const MAX_RANGE_DAYS = 92;
 
 export type RangeResult = { from: number; to: number } | "invalid";
 
-/** Resolve from/to epoch-ms bounds. Date-only `to` values are inclusive (next day 00:00). */
+/** Resolve from/to epoch-ms bounds. Date-only bounds align to the requested timezone
+ * (tz = UTC offset in hours, e.g. 7 = WIB), so "a day" means that zone's day. */
 export function parseUsageRange(url: URL, now: number): RangeResult {
   const fromRaw = url.searchParams.get("from");
   const toRaw = url.searchParams.get("to");
+  const tzRaw = url.searchParams.get("tz");
+
+  const tzParsed = tzRaw !== null ? Number.parseInt(tzRaw, 10) : 0;
+  const tz = Number.isFinite(tzParsed) && tzParsed >= -12 && tzParsed <= 14 ? tzParsed : 0;
+  const tzShiftMs = tz * 3_600_000;
 
   let from = now - DEFAULT_RANGE_DAYS * DAY_MS;
   if (fromRaw !== null && fromRaw !== "") {
     from = DATE_ONLY.test(fromRaw)
-      ? Date.parse(`${fromRaw}T00:00:00.000Z`)
+      ? Date.parse(`${fromRaw}T00:00:00.000Z`) - tzShiftMs
       : Date.parse(fromRaw);
     if (!Number.isFinite(from)) return "invalid";
   }
@@ -37,12 +43,20 @@ export function parseUsageRange(url: URL, now: number): RangeResult {
   if (toRaw !== null && toRaw !== "") {
     to = DATE_ONLY.test(toRaw) ? Date.parse(`${toRaw}T00:00:00.000Z`) : Date.parse(toRaw);
     if (!Number.isFinite(to)) return "invalid";
-    if (DATE_ONLY.test(toRaw)) to += DAY_MS; // inclusive day
+    if (DATE_ONLY.test(toRaw)) to += DAY_MS - tzShiftMs; // inclusive day in that zone
   }
 
   if (from > to) return "invalid";
   if (to - from > MAX_RANGE_DAYS * DAY_MS) return "invalid";
   return { from, to };
+}
+
+/** Quoted SQLite modifier shifting the UTC day bucket into the requested zone
+ * (tz integer-validated, so interpolation is injection-safe). */
+function dayBucketModifier(url: URL): string {
+  const tzParsed = Number.parseInt(url.searchParams.get("tz") ?? "", 10);
+  const tz = Number.isFinite(tzParsed) && tzParsed >= -12 && tzParsed <= 14 ? tzParsed : 0;
+  return `'${tz >= 0 ? "+" : "-"}${Math.abs(tz)} hours'`;
 }
 
 interface ProviderAggregate {
@@ -130,7 +144,7 @@ export async function handleUsageQuery(env: Env, url: URL, requestId: string): P
     .all<ProviderAggregate>();
 
   const daily = await env.USAGE_DB.prepare(
-    `SELECT date(ts / 1000, 'unixepoch') AS day,
+    `SELECT date(ts / 1000, 'unixepoch', ${dayBucketModifier(url)}) AS day,
             provider,
             COUNT(*) AS calls,
             SUM(CASE WHEN ${FAILED_ATTEMPT} THEN 1 ELSE 0 END) AS failures,
@@ -180,6 +194,7 @@ export async function handleUsageQuery(env: Env, url: URL, requestId: string): P
   return new Response(
     JSON.stringify({
       range: { from: new Date(from).toISOString(), to: new Date(to).toISOString() },
+      tz: url.searchParams.get("tz") ?? "0",
       provider: providerParam,
       total,
       providers,

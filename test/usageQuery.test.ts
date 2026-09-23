@@ -26,6 +26,23 @@ describe("usage range parsing", () => {
     });
   });
 
+  it("aligns date-only bounds to the requested timezone (tz=7 → WIB)", () => {
+    const r = parseUsageRange(url("?from=2026-09-01&to=2026-09-03&tz=7"), NOW);
+    expect(r).toEqual({
+      from: Date.parse("2026-09-01T00:00:00.000Z") - 7 * 3_600_000, // 00:00 WIB
+      to: Date.parse("2026-09-04T00:00:00.000Z") - 7 * 3_600_000, // inclusive 09-03 WIB
+    });
+  });
+
+  it("ignores out-of-range or garbage tz values", () => {
+    expect(parseUsageRange(url("?tz=99&from=2026-09-01"), NOW)).toEqual(
+      parseUsageRange(url("?from=2026-09-01"), NOW),
+    );
+    expect(parseUsageRange(url("?tz=abc"), NOW)).toEqual(
+      parseUsageRange(url(""), NOW),
+    );
+  });
+
   it("accepts ISO datetimes", () => {
     const r = parseUsageRange(
       url("?from=2026-09-01T08:30:00Z&to=2026-09-02T09:00:00Z"),

@@ -91,7 +91,7 @@ const DASHBOARD_JS = `
   var to = new Date();
   var from = new Date(Date.now() - 6 * 86400000);
   var banner = document.getElementById('banner');
-  fetch('/v1/usage?from=' + iso(from) + '&to=' + iso(to), { credentials: 'same-origin' })
+  fetch('/v1/usage?from=' + iso(from) + '&to=' + iso(to) + '&tz=7', { credentials: 'same-origin' })
     .then(function (r) {
       if (r.status === 401) { location.href = '/dashboard'; throw new Error('session expired'); }
       if (!r.ok) { throw new Error('usage API returned HTTP ' + r.status); }
@@ -106,6 +106,12 @@ const DASHBOARD_JS = `
     });
 
   function fmt(n) { return Number(n || 0).toLocaleString('en-US'); }
+  function wib(ts) {
+    // West Indonesia Time (UTC+7)
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Jakarta', year: 'numeric',
+      month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false }).format(new Date(Number(ts)));
+  }
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
@@ -128,7 +134,7 @@ const DASHBOARD_JS = `
     }
 
     var box = document.getElementById('databox');
-    var rows = ['<table><thead><tr><th>Day</th><th>Provider</th>' +
+    var rows = ['<table><thead><tr><th>Day (WIB)</th><th>Provider</th>' +
       '<th class="num">Calls</th><th class="num">Failures</th>' +
       '<th class="num">Tokens in</th><th class="num">Tokens out</th></tr></thead><tbody>'];
     var grand = { calls: 0, fails: 0, tin: 0, tout: 0 };
@@ -187,12 +193,11 @@ const DASHBOARD_JS = `
     if (!recents.length) {
       failBox.innerHTML = 'No failures in the last 7 days 🎉';
     } else {
-      var frows = ['<table><thead><tr><th>When (UTC)</th><th>Provider</th>' +
+      var frows = ['<table><thead><tr><th>When (WIB)</th><th>Provider</th>' +
         '<th>Failure class</th><th class="num">HTTP status</th>' +
         '<th class="num">Latency ms</th></tr></thead><tbody>'];
       recents.forEach(function (f) {
-        var when = new Date(Number(f.ts)).toISOString().replace('T', ' ').slice(0, 19);
-        frows.push('<tr><td>' + when + '</td><td>' + esc(f.provider) + '</td>' +
+        frows.push('<tr><td>' + wib(f.ts) + '</td><td>' + esc(f.provider) + '</td>' +
           '<td>' + esc(f.failure_class || 'unknown') + '</td>' +
           '<td class="num">' + (f.status === null ? '—' : f.status) + '</td>' +
           '<td class="num">' + fmt(f.latency_ms) + '</td></tr>');
@@ -298,10 +303,9 @@ export async function handleDashboardGet(req: Request, env: Env, url: URL): Prom
   const key = await resolveSecret(env, "GRUVIX_AI_ROUTER_KEY");
   if (!key) return loginPage(false);
   if (await hasDashboardSession(req, key)) {
-    return dashboardPage("Tokens per provider — last 7 days");
+    return dashboardPage("Tokens per provider — last 7 days (WIB)");
   }
-  return loginPage(url.searchParams.get("e") === "1");
-}
+  return loginPage(url.searchParams.get("e") === "1");}
 
 export async function handleDashboardLogin(req: Request, env: Env): Promise<Response> {
   let token = "";
