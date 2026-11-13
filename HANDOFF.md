@@ -305,8 +305,7 @@ export const DEFAULT_SEED_VERSION = 10; // see src/config/defaults.ts (current: 
 ## Deployment Log
 
 **Latest deployment, 2026-11-13: review fixes.** Production version
-`4bdab539-690e-4555-b005-ecdf6da53883` is live, deployed from commit `b44d89c` on branch
-`openrouter-crusoe-retirement` (not yet merged into `main`, not pushed).
+`4bdab539-690e-4555-b005-ecdf6da53883` is live, deployed from commit `b44d89c` (merged into `main` and pushed the same day).
 
 - Crusoe is retired for good (owner decision: not used; card payment did not work).
   The v15 retirement step in the coordinator is now gated on `storedSeed < 15`, so a
@@ -404,8 +403,8 @@ budget setting was not inspected).
 
 ## Recommended Next Step
 
-Merge `openrouter-crusoe-retirement` into `main` and push. Optionally run the smoke
-script with `stream: true` to see the new stream handling against live OpenRouter.
+Optionally run the smoke script with `stream: true` to see the new stream handling
+against live OpenRouter.
 
 Previous operational note:
 
