@@ -304,7 +304,9 @@ export const DEFAULT_SEED_VERSION = 10; // see src/config/defaults.ts (current: 
 
 ## Deployment Log
 
-**Pending, 2026-11-13: review fixes — NOT committed, NOT deployed.**
+**Latest deployment, 2026-11-13: review fixes.** Production version
+`4bdab539-690e-4555-b005-ecdf6da53883` is live, deployed from commit `b44d89c` on branch
+`openrouter-crusoe-retirement` (not yet merged into `main`, not pushed).
 
 - Crusoe is retired for good (owner decision: not used; card payment did not work).
   The v15 retirement step in the coordinator is now gated on `storedSeed < 15`, so a
@@ -315,10 +317,15 @@ export const DEFAULT_SEED_VERSION = 10; // see src/config/defaults.ts (current: 
   keep-alive comments no longer re-arm the idle watchdog. Tests T24/T25 in
   `test/streaming.test.ts`.
 - Docs: provider lists updated (README, TEAM_API_GUIDE, streaming simulator).
-- Note: everything from the three 2026-11-07 deployments below is live in production
-  but was never committed; it is still in the working tree together with these fixes.
+- Verification: typecheck clean, 76/76 tests pass. After deploy `/health` and `/ready`
+  return 200 with exactly `akashml`, `akashml2`, `deepinfra`, `novita`, `openrouter`;
+  unauthenticated `/v1/models` returns 401. Seed stays v15 (no migration ran). No paid
+  or authenticated calls were made, so the new stream handling is covered by tests
+  only, not by a live OpenRouter stream.
+- The three 2026-11-07 deployments below were committed together with these fixes in
+  `b44d89c`; they had been live but uncommitted until then.
 
-**Latest deployment, 2026-11-07: Crusoe hidden from the dashboard.** Production version
+**Earlier deployment, 2026-11-07: Crusoe hidden from the dashboard.** Production version
 `05344f0b-f579-4ca8-a87d-e274f4993c49` is live. Both `crusoe` and `crusoe2` are
 temporarily filtered out of today's strip, charts, daily and summary tables, shown
 totals, failure-class breakdown and recent failure feed. The raw ledger/API retain
@@ -397,7 +404,8 @@ budget setting was not inspected).
 
 ## Recommended Next Step
 
-Commit the working tree, then `npm run deploy` to ship the pending review fixes above.
+Merge `openrouter-crusoe-retirement` into `main` and push. Optionally run the smoke
+script with `stream: true` to see the new stream handling against live OpenRouter.
 
 Previous operational note:
 
