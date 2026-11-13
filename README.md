@@ -1,7 +1,7 @@
 # Gruuvix AI Router
 
 OpenAI-compatible AI routing service on Cloudflare Workers. Gruuvix calls ONE endpoint for
-`gpt-oss-120b`; the router picks DeepInfra / AkashML / the existing Modal endpoint with
+`gpt-oss-120b`; the router picks DeepInfra / AkashML / Novita / OpenRouter with
 health-aware round robin, leases, concurrency limits, failover and transparent SSE
 streaming. Gruuvix never knows or needs to know which provider answered.
 
@@ -43,7 +43,7 @@ npm run dev         # local dev (needs .dev.vars — copy .dev.vars.example)
 `npm run deploy` runs `wrangler deploy --env production`, which binds the account-level
 **Secrets Store** secrets declared in `wrangler.jsonc` (store `default_secrets_store`):
 `GRUVIX_AI_ROUTER_KEY`, `GRUVIX_AI_ROUTER_ADMIN_KEY`, `DEEPINFRA_API_KEY`,
-`AKASHML_API_KEY`, `MODAL_BASE_URL`, `MODAL_API_KEY`. Create/update those in the
+`AKASHML_API_KEY`, `OPENROUTER_API_KEY`, `MODAL_BASE_URL`, `MODAL_API_KEY`. Create/update those in the
 dashboard (Workers → Secrets Store) — values are write-only there, which is the point.
 
 Notes:
@@ -60,6 +60,62 @@ npm run deploy
 
 Verify the seeded provider base URLs / model ids in `src/config/defaults.ts` (or via the
 admin API) before first deploy — they are initial defaults, not guessed production values.
+
+## OpenRouter: low-cost setup
+
+The `openrouter` slot calls `https://openrouter.ai/api/v1` with
+`openai/gpt-oss-120b:floor`. The `:floor` suffix prioritizes the cheapest available
+provider for the **same GPT-OSS-120B model**, including eligible flex endpoints.
+Gruuvix keeps calling `model: "gpt-oss-120b"`; streaming, failover and usage accounting
+use the existing adapter. OpenRouter joins the normal round robin (five enabled
+slots), with at most five concurrent requests. This is not exclusive OpenRouter routing.
+
+`:floor` is price-priority routing, not a fixed token-price guarantee or a total-spend
+cap. Availability and prices can change. Set the budget on the API key itself:
+
+1. Open [OpenRouter API keys](https://openrouter.ai/settings/keys), create a dedicated
+   key named `Gruuvix router`, and set its credit limit to **$5 with no periodic reset**.
+   This limits spending by this key; it does not add credits to the account.
+2. In Cloudflare, open **Secrets Store → default_secrets_store → Create secret**.
+   Use the exact name **`OPENROUTER_API_KEY`**, paste the key as its value, and give it
+   the **Workers** scope. The production binding is already in `wrangler.jsonc`.
+   Create the secret **before deploying**, so the first request does not encounter a
+   missing-key cooldown.
+3. Deploy the prepared code with `npm run deploy`.
+
+Alternatively, create the account-level secret using the project's Wrangler CLI:
+
+```bash
+npx wrangler secrets-store secret create 373597b9faeb44839583e3ad2d05801a \
+  --name OPENROUTER_API_KEY --scopes workers --remote --env production
+# Paste the key into the interactive prompt, then:
+npm run deploy
+```
+
+For local development only, add `OPENROUTER_API_KEY=...` to the ignored `.dev.vars`.
+Do not put the value in source, `wrangler.jsonc`, or a shell command argument.
+The API key used by Gruuvix to authenticate **to this router stays the same**.
+
+The v13 → v14 upgrade adds only this slot. Seed v15 removes crusoe and crusoe2
+from routing and drains any existing leases before deleting their registry entries;
+other provider settings and health are preserved. If you configured an `openrouter` slot manually,
+the upgrade preserves it; check that its model is `openai/gpt-oss-120b:floor` if you
+want price-priority routing.
+
+OpenRouter reports a provider failure that happens mid-stream as an `error` event
+inside the HTTP 200 stream and sends `: OPENROUTER PROCESSING` keep-alive comments
+while waiting. The router forwards both unchanged, but records the error event as a
+provider failure (breaker + usage ledger) and does not count keep-alive comments as
+stream activity, so a stalled generation still hits the stream idle timeout.
+
+Verify after deployment via the authenticated admin provider list or the dashboard
+after traffic reaches OpenRouter. A missing key gets the normal auth cooldown; a 402
+(account credits or key budget exhausted) gets the normal credit cooldown and failover.
+Deployment and a paid live request are separate from the mocked test suite.
+
+References: [OpenRouter provider routing](https://openrouter.ai/docs/guides/routing/provider-selection),
+[API key limits](https://openrouter.ai/docs/api/reference/authentication),
+[Cloudflare account secrets](https://developers.cloudflare.com/secrets-store/manage-secrets/).
 
 ## Usage analytics (D1)
 
@@ -99,6 +155,10 @@ router API key (same `GRUVIX_AI_ROUTER_KEY`), tick "keep me logged in for 30 day
 signed HttpOnly cookie keeps the session (the raw key never enters the cookie; rotating
 the key revokes all sessions). It shows per-provider tokens-in/out bar charts for the
 last 7 days and a data table beneath, all powered by `/v1/usage`.
+
+Crusoe and Crusoe2 are retired (no longer used) and filtered out of all dashboard
+sections so their old ledger rows do not show. Dashboard totals include only shown
+providers; historical ledger rows remain available through `/v1/usage`.
 
 ## Smoke (manual, spends a tiny amount)
 

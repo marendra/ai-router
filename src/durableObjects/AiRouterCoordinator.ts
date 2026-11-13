@@ -40,6 +40,8 @@ import { cooldownClass, isPenalizing } from "../router/failureClassifier";
 import { DEFAULT_LEASE_TTL_MS } from "../config/defaults";
 
 const CURSOR_KEY = "round_robin_cursor";
+/** Seed version that removed crusoe/crusoe2; databases at or past it skip that step. */
+const CRUSOE_RETIRED_SEED_VERSION = 15;
 
 // ---------------------------------------------------------------- schema
 
@@ -184,8 +186,8 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
     super(ctx, env);
     this.sql = ctx.storage.sql;
     // Idempotent, synchronous bootstrap: schema + first-run seed of default providers.
-    // A bumped DEFAULT_SEED_VERSION re-asserts the default config rows (upsert) without
-    // touching runtime health state or admin-created providers.
+    // Version bumps normally re-assert defaults and reset their breaker state. The
+    // incremental v13-v15 migrations below preserve unaffected providers.
     this.sql.exec(SCHEMA);
     const seededRows = [
       ...this.sql.exec("SELECT COUNT(*) AS n FROM providers"),
@@ -194,7 +196,13 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
     const storedSeed = this.getMetaNumber("seed_version", 1);
     if (seeded.n === 0 || storedSeed < DEFAULT_SEED_VERSION) {
       const now = Date.now();
-      for (const seed of DEFAULT_PROVIDER_SEED) {
+      // Preserve v13/v14 admin edits and health. Only a v13 database needs the
+      // OpenRouter addition; a v14 database may have intentionally removed it.
+      const incrementalUpgrade = seeded.n > 0 && (storedSeed === 13 || storedSeed === 14);
+      const seeds = incrementalUpgrade
+        ? DEFAULT_PROVIDER_SEED.filter((seed) => storedSeed === 13 && seed.id === "openrouter" && !this.loadConfig(seed.id))
+        : DEFAULT_PROVIDER_SEED;
+      for (const seed of seeds) {
         const cfg: ProviderConfig = {
           ...seed,
           baseUrl: seed.baseUrl,
@@ -206,6 +214,23 @@ export class AiRouterCoordinator extends DurableObject<Record<string, unknown>> 
         // Fresh config invalidates stale health state (e.g. cooldowns caused by the
         // old configuration), so re-asserted providers start healthy again.
         this.resetSeedState(cfg.id);
+      }
+      // One-time v15 step: retire Crusoe safely — stop new leases immediately, keeping
+      // in-flight lease accounting until housekeeping removes the drained rows. Gated
+      // on the stored version so later seed bumps never touch a provider with these ids.
+      if (storedSeed < CRUSOE_RETIRED_SEED_VERSION) {
+        const cursorProvider = this.loadConfigs()[this.getCursor()]?.id;
+        const retiringCrusoe = this.loadConfig("crusoe") || this.loadConfig("crusoe2");
+        this.sql.exec(
+          "UPDATE providers SET enabled = 0, pending_deletion = 1, updated_at = ? WHERE id IN ('crusoe', 'crusoe2')",
+          now,
+        );
+        this.housekeeping(now);
+        if (retiringCrusoe && cursorProvider) {
+          // Cursor indexes refer to the sorted registry; preserve its position when
+          // deleting rows before it (or continue after a removed cursor provider).
+          this.setCursor(this.loadConfigs().filter((cfg) => cfg.id <= cursorProvider).length - 1);
+        }
       }
       this.setMetaNumber("seed_version", DEFAULT_SEED_VERSION);
     }

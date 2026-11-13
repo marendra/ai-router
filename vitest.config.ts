@@ -14,6 +14,7 @@ export default defineWorkersConfig({
           bindings: {
             GRUVIX_AI_ROUTER_KEY: "test-router-key",
             GRUVIX_AI_ROUTER_ADMIN_KEY: "test-admin-key",
+            OPENROUTER_API_KEY: "test-openrouter-key",
             MODAL_BASE_URL: "http://modal.test/v1",
           },
         },

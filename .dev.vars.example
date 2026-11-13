@@ -8,6 +8,7 @@ GRUVIX_AI_ROUTER_ADMIN_KEY=
 # --- Upstream provider keys (Router -> providers) ---
 DEEPINFRA_API_KEY=
 AKASHML_API_KEY=
+OPENROUTER_API_KEY=
 
 # --- Existing Modal GPT-OSS-120B endpoint (consumed, NOT redeployed) ---
 MODAL_BASE_URL=

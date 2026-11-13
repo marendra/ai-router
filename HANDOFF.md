@@ -295,14 +295,111 @@ export const DEFAULT_SEED_VERSION = 10; // see src/config/defaults.ts (current: 
 - **Modal**: disabled since seed v5 (instant 503s — app down, not cold start). Re-enable
   via admin API (`PATCH /internal/providers/modal {"enabled":true}`) once persistently
   redeployed.
-- **Crusoe** live since seed v6: `https://api.inference.crusoecloud.com/v1`,
-  `openai/gpt-oss-120b`, `CRUSOE_API_KEY` (Secrets Store).
+- **Crusoe**: RETIRED in seed v15 (both accounts; not used). The `CRUSOE_API_KEY` /
+  `CRUSOE_SECOND_KEY` secrets still exist in the Secrets Store but are no longer bound.
 - Default `reasoning_effort=low` injected upstream unless the client sends one (var
   `DEFAULT_REASONING_EFFORT`).
 - Optional future: weighted routing, per-provider RPM quotas, multiple logical models,
   latency EWMA in selection, rolling error-rate metrics endpoint.
 
+## Deployment Log
+
+**Pending, 2026-11-13: review fixes — NOT committed, NOT deployed.**
+
+- Crusoe is retired for good (owner decision: not used; card payment did not work).
+  The v15 retirement step in the coordinator is now gated on `storedSeed < 15`, so a
+  later seed bump can never drain/delete a provider with those ids again.
+- Stream pump (`src/routes/streaming.ts`): an in-stream error event under HTTP 200
+  (top-level `error` / `finish_reason: "error"`, as OpenRouter sends) is forwarded
+  verbatim but settled as a provider failure, classified from `error.code`. SSE
+  keep-alive comments no longer re-arm the idle watchdog. Tests T24/T25 in
+  `test/streaming.test.ts`.
+- Docs: provider lists updated (README, TEAM_API_GUIDE, streaming simulator).
+- Note: everything from the three 2026-11-07 deployments below is live in production
+  but was never committed; it is still in the working tree together with these fixes.
+
+**Latest deployment, 2026-11-07: Crusoe hidden from the dashboard.** Production version
+`05344f0b-f579-4ca8-a87d-e274f4993c49` is live. Both `crusoe` and `crusoe2` are
+temporarily filtered out of today's strip, charts, daily and summary tables, shown
+totals, failure-class breakdown and recent failure feed. The raw ledger/API retain
+historical records. The filter is the two-name check at the start of `render()` in
+`src/routes/dashboard.ts`; Crusoe is retired, so it can stay.
+
+- Typecheck and all eight dashboard tests passed. The renderer also passed synthetic
+  mixed-provider and empty-data checks, with totals verified to exclude the hidden rows.
+- Authenticated live dashboard returned HTTP 200. Its deployed script was executed
+  against actual production usage: the API contains historical Crusoe/Crusoe2 rows,
+  while visible cards are exactly AkashML, AkashML2, DeepInfra, Novita and OpenRouter.
+  Every dashboard section was verified free of either Crusoe name. No paid calls made.
+- Local verification harness: ignored `.wrangler/verify-dashboard.mjs --live`.
+
+**Earlier deployment, 2026-11-07: both Crusoe providers removed.** Version
+`9db3fb34-d399-4e43-8e61-5ff7af04870b` is live at
+https://gruuvix-ai-router.marendra.workers.dev (seed v15).
+
+- Removed `crusoe` and `crusoe2` from the default seed and removed their Worker secret
+  bindings. Account-level secrets were not deleted.
+- v14 -> v15 migration retires the two registry records via drain-before-delete,
+  preserving other provider configuration, health and leases. The round-robin cursor
+  is adjusted for the removed registry rows. Upgrading directly from v13 also adds
+  OpenRouter without resetting other providers.
+- Typecheck, production dry-run and all 72 tests pass (including active-lease draining
+  and v14 migration preservation). `npm run deploy` completed successfully.
+- Live `/health`, `/ready` and authenticated `/v1/models` all return 200. `/ready`
+  confirms exactly `akashml`, `akashml2`, `deepinfra`, `novita`, `openrouter`; neither
+  Crusoe slot remains in routing. Modal remains disabled. This removal verification
+  made no paid inference calls.
+- Novita's previously observed 403 remains a separate key/account issue.
+
+**Earlier deployment, 2026-11-07: OpenRouter added and live-verified.** Version
+`8bb096da-30dd-4f04-8b44-abce9fe2fed0` at
+https://gruuvix-ai-router.marendra.workers.dev. `OPENROUTER_API_KEY` was confirmed active
+in the production account's `default_secrets_store` with the Workers scope before
+deployment. Full key setup instructions are in README's "OpenRouter: low-cost setup"
+section; a $5 key credit limit with no periodic reset is recommended (the key's OpenRouter
+budget setting was not inspected).
+
+- Seed v14 adds `openrouter`: `https://openrouter.ai/api/v1`, model
+  `openai/gpt-oss-120b:floor`, five concurrent leases. The logical client model stays
+  `gpt-oss-120b`; `:floor` prioritizes the lowest-priced eligible provider for that same
+  model. This is price-priority routing, not a fixed-price guarantee. At v14 there were
+  seven enabled account slots; v15 removes the two Crusoe slots. Modal remains disabled.
+- Upgrade from the current v13 database is additive: existing admin configuration,
+  breaker state, leases and cursor are preserved. A pre-existing admin `openrouter`
+  record is preserved, too. Historical upgrades from older seeds retain the previous
+  full default-refresh behavior.
+- Production Secrets Store binding and local `.dev.vars.example` placeholder added.
+  The generic adapter and the existing SSE, failure classification and D1 paths are reused.
+- Verification: strict TypeScript passes; 12 files / 69 tests pass, including six new
+  OpenRouter integration/migration cases (all mocked, no paid calls). Production
+  `wrangler deploy --dry-run --env production` passes with the new secret binding.
+  Binding types regenerated into ignored `.wrangler/openrouter-env.d.ts` for validation.
+
+- Production deploy: `npm run deploy` completed successfully. `/health`, `/ready` and
+  authenticated `/v1/models` passed; `/ready` includes `openrouter`.
+- Live OpenRouter smoke passed through the router's normal round robin, without
+  disabling providers or enabling public debug headers. Both exact request IDs were
+  verified against remote D1 rows: provider `openrouter`, upstream model
+  `openai/gpt-oss-120b:floor`, HTTP 200, null failure class, `finish_reason=stop`.
+  - Non-stream: `smoke-or-n-0b5949b6-e739-4087-876d-0bd98024582e`, response `OK`,
+    74 prompt / 28 completion tokens, 1049 ms provider duration.
+  - Stream: `smoke-or-s-2305d338-043c-4a6b-bb6d-a90bf5dd5b58`, response `OK`,
+    4 parsed chunks, 74 prompt / 19 completion tokens, 635 ms provider duration.
+  - OpenRouter reported inference costs $0.000002708 + $0.000002177 = $0.000004885.
+    Five tiny router requests total were sufficient to reach OpenRouter in both modes.
+  - Local smoke harness/results: ignored `.wrangler/smoke-openrouter.mjs` and
+    `.wrangler/openrouter-smoke-results.json`; no key values are saved in those files.
+- Existing-provider problems observed during this live smoke: Novita returned 403
+  (`authentication_error`); Crusoe and Crusoe2 each returned 402 (`credit_error`). The
+  router applied their cooldowns and successfully failed over. These account/key
+  problems need owner attention; no credentials or provider configuration were changed
+  to work around them.
+
 ## Recommended Next Step
+
+Commit the working tree, then `npm run deploy` to ship the pending review fixes above.
+
+Previous operational note:
 
 Verify/fix the AkashML endpoint+key, then run
 `GRUVIX_AI_ROUTER_URL=https://gruuvix-ai-router.marendra.workers.dev GRUVIX_AI_ROUTER_KEY=<key> npm run smoke`

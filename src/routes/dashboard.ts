@@ -120,6 +120,12 @@ const DASHBOARD_JS = `
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
   function render(data) {
+    // Crusoe is retired (no longer used): keep its historical ledger rows off the page.
+    ['daily', 'providers', 'failureClasses', 'recentFailures'].forEach(function (field) {
+      data[field] = (data[field] || []).filter(function (row) {
+        return row.provider !== 'crusoe' && row.provider !== 'crusoe2';
+      });
+    });
     var days = [];
     for (var i = 6; i >= 0; i--) days.push(iso(new Date(Date.now() - i * 86400000)));
     var byProvider = {};
@@ -176,7 +182,7 @@ const DASHBOARD_JS = `
         '<td class="num">' + fmt(r.tokens_in) +
         '</td><td class="num">' + fmt(r.tokens_out) + '</td></tr>');
     });
-    rows.push('<tr class="total"><td colspan="2">Total (7 days)</td>' +
+    rows.push('<tr class="total"><td colspan="2">Total (shown providers, 7 days)</td>' +
       '<td class="num">' + fmt(grand.calls) + '</td><td class="num">' + fmt(grand.fails) +
       '</td><td class="num">' + fmt(grand.tin) +
       '</td><td class="num">' + fmt(grand.tout) + '</td></tr></tbody></table>');

@@ -3,7 +3,10 @@
  *  - failover only BEFORE any byte has been forwarded (handled in chatCompletions route);
  *  - once streaming, never replay with another provider — terminate and report;
  *  - idle watchdog kills silent streams (tracked explicitly so a stall is NEVER
- *    reported as success), healthy long streams are never timed out;
+ *    reported as success), healthy long streams are never timed out; SSE keep-alive
+ *    comments do not count as activity;
+ *  - an in-stream error event (HTTP 200 + `error` chunk, as OpenRouter sends) is
+ *    forwarded verbatim but settles the attempt as a provider failure;
  *  - success is reported only at clean stream end (activeRequests stays honest);
  *  - client disconnect cancels the upstream fetch (single stream — no tee, so the
  *    generation actually stops) and reports client_abort (no health penalty);
@@ -12,6 +15,7 @@
  */
 import type { FailureClass, ProviderConfigSnapshot, ReportFailureRequest, ReportSuccessRequest } from "../types/router";
 import { EMPTY_USAGE, extractUsageFromSseDump, type TokenUsage } from "../usage/usageLedger";
+import { classifyUpstreamStatus } from "../router/failureClassifier";
 
 /** Minimal coordinator surface the streamer needs (works with DO RPC stubs in tests). */
 export interface StreamCoordinator {
@@ -57,6 +61,61 @@ export function buildStreamResponseHeaders(
   return headers;
 }
 
+/**
+ * Incremental SSE line scan over the forwarded bytes (never alters them). It answers
+ * two questions the raw byte flow cannot:
+ *  - did this chunk carry real data, or only keep-alive comments (`: OPENROUTER
+ *    PROCESSING`) / blank lines? Only real data counts as stream activity;
+ *  - did the upstream report a failure INSIDE an HTTP 200 stream? OpenRouter sends a
+ *    chunk with a top-level `error` object and `finish_reason: "error"`, then ends the
+ *    stream normally — a clean EOF that must not be recorded as a success.
+ */
+export class SseScanner {
+  private pending = "";
+  /** True once an in-stream error event has been seen. */
+  upstreamError = false;
+  /** Numeric `error.code` of that event when it is an HTTP-like status, else null. */
+  upstreamErrorStatus: number | null = null;
+
+  /** Feed decoded text; returns true when it contained anything but comments/blanks. */
+  feed(text: string): boolean {
+    let meaningful = false;
+    const lines = (this.pending + text).split("\n");
+    this.pending = lines.pop() ?? "";
+    for (const raw of lines) {
+      const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
+      if (line === "" || line.startsWith(":")) continue;
+      meaningful = true;
+      if (!this.upstreamError && line.startsWith("data:") && line.includes('"error"')) {
+        this.inspect(line.slice(5));
+      }
+    }
+    // A partial line still counts as activity unless it is the start of a comment.
+    if (this.pending !== "" && !this.pending.startsWith(":")) meaningful = true;
+    if (this.pending.length > 1_048_576) this.pending = ""; // cap memory on a runaway line
+    return meaningful;
+  }
+
+  private inspect(payload: string): void {
+    try {
+      const chunk = JSON.parse(payload) as {
+        error?: unknown;
+        choices?: { finish_reason?: unknown }[];
+      } | null;
+      if (chunk === null || typeof chunk !== "object") return;
+      const hasError = chunk.error !== undefined && chunk.error !== null;
+      const finishedWithError =
+        Array.isArray(chunk.choices) && chunk.choices.some((c) => c?.finish_reason === "error");
+      if (!hasError && !finishedWithError) return;
+      this.upstreamError = true;
+      const code = (chunk.error as { code?: unknown } | null | undefined)?.code;
+      if (typeof code === "number" && code >= 400 && code <= 599) this.upstreamErrorStatus = code;
+    } catch {
+      // not JSON — an ordinary data line that merely contains the word
+    }
+  }
+}
+
 export function pipeUpstreamStream(args: StreamArgs): ReadableStream {
   const { req, stub, providerId, leaseId, config, startedAt } = args;
   const idleMs = config.streamIdleTimeoutMs;
@@ -64,8 +123,13 @@ export function pipeUpstreamStream(args: StreamArgs): ReadableStream {
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
   let reported = false;
   let dump: string | undefined = args.collectUsage ? "" : undefined;
+  const scanner = new SseScanner();
 
-  const reportFinal = async (success: boolean, failureClass: FailureClass): Promise<void> => {
+  const reportFinal = async (
+    success: boolean,
+    failureClass: FailureClass,
+    status: number | null = null,
+  ): Promise<void> => {
     if (reported) return;
     reported = true;
     const latencyMs = Date.now() - startedAt; // full-stream duration, not time-to-headers
@@ -80,7 +144,7 @@ export function pipeUpstreamStream(args: StreamArgs): ReadableStream {
       if (success) {
         await stub.reportSuccess({ leaseId, providerId, latencyMs });
       } else {
-        await stub.reportFailure({ leaseId, providerId, status: null, failureClass, latencyMs });
+        await stub.reportFailure({ leaseId, providerId, status, failureClass, latencyMs });
       }
     } catch {
       // Never let report RPC failures break the client stream; lease TTL covers us.
@@ -113,9 +177,12 @@ export function pipeUpstreamStream(args: StreamArgs): ReadableStream {
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        armIdleWatchdog();
+        const text = decoder.decode(value, { stream: true });
+        // Keep-alive comments are not progress: only real SSE data re-arms the
+        // watchdog, so a provider that stalls behind a proxy's pings still times out.
+        if (scanner.feed(text)) armIdleWatchdog();
         if (dump !== undefined) {
-          dump += decoder.decode(value, { stream: true });
+          dump += text;
           if (dump.length > 4_194_304) dump = dump.slice(-1_048_576); // cap memory on runaway streams
         }
         await writer.write(value);
@@ -136,6 +203,14 @@ export function pipeUpstreamStream(args: StreamArgs): ReadableStream {
         } catch {
           // client side already gone
         }
+      } else if (scanner.upstreamError) {
+        // The upstream failed mid-generation but ended the HTTP 200 stream cleanly.
+        // The client already received the error event verbatim; close normally and
+        // record a provider failure (never replayed — bytes have been forwarded).
+        await writer.close();
+        const status = scanner.upstreamErrorStatus;
+        const classified = status !== null ? classifyUpstreamStatus(status) : "provider_error";
+        await reportFinal(false, classified === "unknown" ? "provider_error" : classified, status);
       } else {
         await writer.close();
         await reportFinal(true, "unknown");

@@ -10,11 +10,11 @@ export const LOGICAL_MODEL = "gpt-oss-120b";
 export const DEFAULT_LEASE_TTL_MS = 600_000; // 10 min: must exceed longest generation
 
 /**
- * Bump to re-assert these defaults onto the live DO's providers table: config rows are
- * upserted and the re-asserted providers' breaker state resets to healthy. Admin-created
- * providers and admin config edits to OTHER fields after the bump are untouched.
+ * Bumps normally re-assert default config and reset the affected breaker state.
+ * The v13-v15 upgrades preserve other providers: v14 adds OpenRouter and v15
+ * retires both Crusoe slots using the normal drain-before-delete behavior.
  */
-export const DEFAULT_SEED_VERSION = 13; // v13: add akashml2 (6-provider rotation, 2x akashml slots)
+export const DEFAULT_SEED_VERSION = 15; // v15: remove crusoe and crusoe2
 
 type Seed = Omit<
   ProviderConfig,
@@ -69,23 +69,6 @@ export const DEFAULT_PROVIDER_SEED: Seed[] = [
     maxConcurrentRequests: 50,
   },
   {
-    id: "crusoe",
-    enabled: true,
-    // Crusoe Cloud OpenAI-compatible inference. `${baseUrl}/chat/completions` is the
-    // endpoint; trailing slashes in configured URLs are normalized on join.
-    baseUrl: "https://api.inference.crusoecloud.com/v1",
-    baseUrlEnv: null,
-    modelId: "openai/gpt-oss-120b",
-    apiKeyEnv: "CRUSOE_API_KEY",
-    timeoutMs: 60_000,
-    streamIdleTimeoutMs: 60_000,
-    cooldownMs: 30_000,
-    authFailureCooldownMs: 15 * 60_000,
-    creditFailureCooldownMs: 30 * 60_000,
-    failureThreshold: 2,
-    maxConcurrentRequests: 50,
-  },
-  {
     id: "novita",
     enabled: true,
     // Novita AI OpenAI-compatible inference. `${baseUrl}/chat/completions` is the endpoint
@@ -103,21 +86,21 @@ export const DEFAULT_PROVIDER_SEED: Seed[] = [
     maxConcurrentRequests: 50,
   },
   {
-    id: "crusoe2",
+    id: "openrouter",
     enabled: true,
-    // Second Crusoe account (separate credit card / rate-limit bucket): doubles
-    // Crusoe's router-side concurrency budget and gives round robin a 5th slot.
-    baseUrl: "https://api.inference.crusoecloud.com/v1",
+    baseUrl: "https://openrouter.ai/api/v1",
     baseUrlEnv: null,
-    modelId: "openai/gpt-oss-120b",
-    apiKeyEnv: "CRUSOE_SECOND_KEY",
+    // :floor prioritizes the cheapest provider for this exact model, not a different
+    // model. Keep the client-facing gpt-oss-120b contract intact.
+    modelId: "openai/gpt-oss-120b:floor",
+    apiKeyEnv: "OPENROUTER_API_KEY",
     timeoutMs: 60_000,
     streamIdleTimeoutMs: 60_000,
     cooldownMs: 30_000,
     authFailureCooldownMs: 15 * 60_000,
     creditFailureCooldownMs: 30 * 60_000,
     failureThreshold: 2,
-    maxConcurrentRequests: 50,
+    maxConcurrentRequests: 5,
   },
   {
     id: "modal",

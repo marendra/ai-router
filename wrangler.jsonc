@@ -99,19 +99,14 @@
           "secret_name": "AKASH_SECOND_KEY"
         },
         {
-          "binding": "CRUSOE_API_KEY",
-          "store_id": "373597b9faeb44839583e3ad2d05801a",
-          "secret_name": "CRUSOE_API_KEY"
-        },
-        {
-          "binding": "CRUSOE_SECOND_KEY",
-          "store_id": "373597b9faeb44839583e3ad2d05801a",
-          "secret_name": "CRUSOE_SECOND_KEY"
-        },
-        {
           "binding": "NOVITA_API_KEY",
           "store_id": "373597b9faeb44839583e3ad2d05801a",
           "secret_name": "NOVITA_API_KEY"
+        },
+        {
+          "binding": "OPENROUTER_API_KEY",
+          "store_id": "373597b9faeb44839583e3ad2d05801a",
+          "secret_name": "OPENROUTER_API_KEY"
         },
         {
           "binding": "MODAL_BASE_URL",
@@ -132,6 +127,7 @@
   //   GRUVIX_AI_ROUTER_ADMIN_KEY - bearer key for /internal/* admin routes
   //   DEEPINFRA_API_KEY          - upstream key for DeepInfra
   //   AKASHML_API_KEY            - upstream key for AkashML
+  //   OPENROUTER_API_KEY         - OpenRouter key (set a $5 credit limit in OpenRouter)
   //   MODAL_BASE_URL             - URL of the EXISTING Modal GPT-OSS-120B endpoint (not a secret, but env-managed)
   //   MODAL_API_KEY              - optional; only if the Modal endpoint enforces auth
 }
